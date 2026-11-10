@@ -38,6 +38,11 @@ struct AppConfiguration: Codable, Equatable {
     /// Ordered list of built-in API providers + their enable state. UI
     /// surfaces this as a draggable list in the API subpage.
     var apiProviders: [APIProviderEntry]
+    /// When on, an API provider that fails mid-translation triggers a
+    /// fallback: every other enabled API provider not already on screen is
+    /// added to the same translation. The failed row stays visible as an
+    /// unreachable result. Off by default.
+    var apiFallbackEnabled: Bool
     /// Providers called on every new translation. This is a subset of the
     /// services that are available (top-level toggles + per-provider
     /// enablement); any other enabled service can still be swapped into a
@@ -122,6 +127,7 @@ struct AppConfiguration: Codable, Equatable {
         aiEnabled: false,
         apiEnabled: true,
         apiProviders: defaultAPIProviders,
+        apiFallbackEnabled: false,
         baseURL: "http://localhost:11434/v1",
         apiKey: "",
         textModel: "",
@@ -156,6 +162,7 @@ struct AppConfiguration: Codable, Equatable {
         aiEnabled: Bool = false,
         apiEnabled: Bool = true,
         apiProviders: [APIProviderEntry] = AppConfiguration.defaultAPIProviders,
+        apiFallbackEnabled: Bool = false,
         baseURL: String,
         apiKey: String,
         textModel: String,
@@ -184,6 +191,7 @@ struct AppConfiguration: Codable, Equatable {
         self.aiEnabled = aiEnabled
         self.apiEnabled = apiEnabled
         self.apiProviders = apiProviders
+        self.apiFallbackEnabled = apiFallbackEnabled
         self.defaultProviderIDs = defaultProviderIDs
         self.baseURL = baseURL
         self.apiKey = apiKey
@@ -228,6 +236,8 @@ struct AppConfiguration: Codable, Equatable {
         }
         defaultProviderIDs = try container.decodeIfPresent([String].self, forKey: .defaultProviderIDs)
             ?? defaults.defaultProviderIDs
+        apiFallbackEnabled = try container.decodeIfPresent(Bool.self, forKey: .apiFallbackEnabled)
+            ?? defaults.apiFallbackEnabled
 
         baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL) ?? defaults.baseURL
         apiKey = try container.decodeIfPresent(String.self, forKey: .apiKey) ?? defaults.apiKey

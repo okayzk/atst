@@ -372,10 +372,17 @@ final class TranslatorViewModel: ObservableObject {
     /// the same translation, so it doesn't bump `translationGeneration`
     /// (existing collapsed rows stay collapsed).
     func addAllAvailableProviders() {
-        guard case .text(var segments) = state else { return }
+        guard case .text(let segments) = state else { return }
         let used = Set(segments.allSegments.map(\.id))
         let additions = configuration.availableProviderKinds.filter { !used.contains($0) }
-        guard !additions.isEmpty else { return }
+        addProviders(additions)
+    }
+
+    /// Append providers to the translation currently on screen. Existing
+    /// rows are left untouched — the API fallback relies on this to keep
+    /// the failed provider visible as an unreachable result.
+    private func addProviders(_ additions: [TranslationProviderID]) {
+        guard !additions.isEmpty, case .text(var segments) = state else { return }
 
         let source = segments.source
         let target = segments.targetLanguage.isEmpty
@@ -428,6 +435,30 @@ final class TranslatorViewModel: ObservableObject {
         if sawCacheMiss {
             TranslationStats.shared.recordCacheMiss()
         }
+    }
+
+    /// API fallback: when an enabled API provider cannot be reached and the
+    /// user opted in, add every other enabled API provider that isn't on
+    /// screen yet. The failed row stays visible — fallback only appends.
+    private func fallbackAfterFailure(
+        from failedID: TranslationProviderID,
+        source: String
+    ) {
+        guard configuration.apiFallbackEnabled,
+              case .text(let segments) = state,
+              segments.source == source else {
+            return
+        }
+        let used = Set(segments.allSegments.map(\.id))
+        let additions = configuration.enabledAPIProviderKinds.filter {
+            $0 != failedID && !used.contains($0)
+        }
+        guard !additions.isEmpty else { return }
+        AppLogger.log(
+            "api fallback after \(failedID.rawValue) failure, adding "
+            + additions.map(\.rawValue).joined(separator: ",")
+        )
+        addProviders(additions)
     }
 
     /// Create an independent session for a pinned note. The note receives
@@ -637,6 +668,9 @@ final class TranslatorViewModel: ObservableObject {
                 segment.consecutiveFailures = failures
             }
             AppLogger.log("provider \(provider.id.rawValue) failed (\(failures) in a row): \(error)")
+            if provider.id.segmentKind == .api {
+                fallbackAfterFailure(from: provider.id, source: source)
+            }
         }
     }
 

@@ -136,6 +136,8 @@ The General page holds the target and secondary languages, launch-at-login, hotk
 - ☑️ **API Translation** (on by default) — Google + Microsoft + DeepL. Zero config.
 
 Each provider name in the API subpage has a reachability dot, checked automatically when the page opens. In the AI subpage, the **Test** button below Timeout sends a tiny request with a dot next to its label.
+
+The API subpage also has an optional **Fallback** toggle: when a provider fails or is unreachable, the remaining enabled API providers are added to the same translation automatically, and the failed row stays visible with its error.
 - ☐ **AI Translation** (off by default) — OpenAI-compatible endpoint. Configure base URL + key + model in the AI subpage.
 
 Below them, **Default translation services** picks which of the enabled services run on every new translation. Select one or several; anything left unchecked stays one click away in each result's switch menu.

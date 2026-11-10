@@ -16,6 +16,7 @@ struct SettingsAPIPage: View {
             VStack(alignment: .leading, spacing: 14) {
                 statusSection
                 providersSection
+                fallbackSection
                 customSection
                 noticeSection
             }
@@ -159,6 +160,22 @@ struct SettingsAPIPage: View {
             )
         case .ai, .none:
             return ""
+        }
+    }
+
+    private var fallbackSection: some View {
+        SettingsSection(title: L.pick("Fallback", "回退")) {
+            SettingsToggleRow(
+                title: L.pick("Fallback to other API providers", "自动回退到其他 API 服务"),
+                subtitle: L.pick(
+                    "When an enabled provider fails or is unreachable, add the remaining enabled API providers to the same translation.",
+                    "已启用的 provider 失败或不可达时，自动追加调用其余已启用的 API 服务。"
+                ),
+                isOn: $draft.apiFallbackEnabled,
+                onChange: save
+            )
+            .disabled(!draft.apiEnabled)
+            .opacity(draft.apiEnabled ? 1 : 0.4)
         }
     }
 
