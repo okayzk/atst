@@ -111,6 +111,10 @@ struct AppConfiguration: Codable, Equatable {
     /// Registers the app as a login item via `SMAppService`. Only takes
     /// effect from a bundled .app — `swift run` builds log and skip.
     var launchAtLogin: Bool
+    /// Hides the menu bar status item. Settings stay reachable from the
+    /// translation window header and by launching the app again while it
+    /// is already running.
+    var hideMenuBarIcon: Bool
 
     static let defaultAPIProviders: [APIProviderEntry] = [
         .init(kind: .google, enabled: true),
@@ -167,6 +171,7 @@ struct AppConfiguration: Codable, Equatable {
         ocrLanguages: defaultOCRLanguages,
         pinnedNoteFollowsAcrossSpaces: false,
         launchAtLogin: false,
+        hideMenuBarIcon: false,
         dictionaryEnabled: true,
         dictionarySkipsTranslation: true,
         dictionaryMaxWords: 4
@@ -202,6 +207,7 @@ struct AppConfiguration: Codable, Equatable {
         ocrLanguages: [String] = AppConfiguration.defaultOCRLanguages,
         pinnedNoteFollowsAcrossSpaces: Bool = false,
         launchAtLogin: Bool = false,
+        hideMenuBarIcon: Bool = false,
         defaultProviderIDs: [String] = AppConfiguration.defaultProviderIDs,
         dictionaryEnabled: Bool = true,
         dictionarySkipsTranslation: Bool = true,
@@ -235,6 +241,7 @@ struct AppConfiguration: Codable, Equatable {
         self.ocrLanguages = ocrLanguages
         self.pinnedNoteFollowsAcrossSpaces = pinnedNoteFollowsAcrossSpaces
         self.launchAtLogin = launchAtLogin
+        self.hideMenuBarIcon = hideMenuBarIcon
         self.dictionaryEnabled = dictionaryEnabled
         self.dictionarySkipsTranslation = dictionarySkipsTranslation
         self.dictionaryMaxWords = min(4, max(1, dictionaryMaxWords))
@@ -295,6 +302,7 @@ struct AppConfiguration: Codable, Equatable {
         }
         pinnedNoteFollowsAcrossSpaces = try container.decodeIfPresent(Bool.self, forKey: .pinnedNoteFollowsAcrossSpaces) ?? defaults.pinnedNoteFollowsAcrossSpaces
         launchAtLogin = try container.decodeIfPresent(Bool.self, forKey: .launchAtLogin) ?? defaults.launchAtLogin
+        hideMenuBarIcon = try container.decodeIfPresent(Bool.self, forKey: .hideMenuBarIcon) ?? defaults.hideMenuBarIcon
     }
 
     var chatCompletionsURL: URL? {

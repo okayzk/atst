@@ -194,6 +194,13 @@ struct TranslationResultView: View {
                 }
             }
 
+            headerIconButton(
+                "gearshape",
+                help: L.pick("Settings", "设置")
+            ) {
+                onOpenSettings()
+            }
+
             headerIconButton("xmark", help: L.pick("Close", "关闭")) {
                 onClose()
             }

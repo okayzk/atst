@@ -546,6 +546,8 @@ struct SettingsGeneralPage: View {
             Divider().padding(.horizontal, 10)
             launchAtLoginRow
             Divider().padding(.horizontal, 10)
+            hideMenuBarIconRow
+            Divider().padding(.horizontal, 10)
             pinnedNoteFollowsRow
         }
     }
@@ -727,6 +729,21 @@ struct SettingsGeneralPage: View {
             title: L.pick("Launch at login", "登录时自动启动"),
             subtitle: launchAtLoginSubtitle,
             isOn: $draft.launchAtLogin,
+            onChange: save
+        )
+    }
+
+    /// Hiding the menu bar icon leaves no always-visible entry point, so the
+    /// subtitle spells out the two remaining ways into settings: the gear in
+    /// the translation window header, and launching atst again.
+    private var hideMenuBarIconRow: some View {
+        SettingsToggleRow(
+            title: L.pick("Hide menu bar icon", "隐藏菜单栏图标"),
+            subtitle: L.pick(
+                "Open settings from the translation window, or launch atst again",
+                "可从翻译窗口打开设置，或再次启动 atst"
+            ),
+            isOn: $draft.hideMenuBarIcon,
             onChange: save
         )
     }

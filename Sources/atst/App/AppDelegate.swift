@@ -56,6 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         applyAppearance(settingsStore.configuration.appearanceMode)
         configureMainMenu()
         _ = statusBarController
+        statusBarController.setIconVisible(!settingsStore.configuration.hideMenuBarIcon)
         configureHotKeys(settingsStore.configuration)
         hotKeyMonitor.onEscape = { [weak self] in
             self?.panelController.closeIfVisible() ?? false
@@ -83,9 +84,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self?.applyAppearance(configuration.appearanceMode)
                 self?.applyCacheSettings(configuration)
                 self?.applyLaunchAtLogin(configuration.launchAtLogin)
+                self?.statusBarController.setIconVisible(!configuration.hideMenuBarIcon)
                 self?.prewarmAllProviders(configuration)
             }
             .store(in: &cancellables)
+    }
+
+    /// Launching atst again while it is already running (Finder double
+    /// click, Dock / Spotlight, `open -a`) sends a reopen event. The app is
+    /// menu-bar-only, so there is no window to bring forward — use the
+    /// event as a settings entry point instead. This also keeps settings
+    /// reachable when the menu bar icon is hidden.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        AppLogger.log("applicationShouldHandleReopen -> open settings")
+        statusBarController.openSettings()
+        return true
     }
 
     /// Sync the login-item registration with the setting. Idempotent: only

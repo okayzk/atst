@@ -48,8 +48,24 @@ final class StatusBarController: NSObject {
     /// empty-state CTA so the user can flip a translator on without hunting
     /// for the menu bar.
     func openSettings() {
-        if let panel, panel.isVisible { return }
+        if let panel, panel.isVisible {
+            // Already open — raise it instead of doing nothing, so a second
+            // launch still brings the window forward when it sits behind
+            // another app.
+            NSApp.activate(ignoringOtherApps: true)
+            panel.makeKeyAndOrderFront(nil)
+            return
+        }
         open()
+    }
+
+    /// Show or hide the menu bar status item. Kept alive while hidden so
+    /// the settings panel can still be opened by launching the app again;
+    /// `open()` falls back to centring the panel on screen once the status
+    /// item has no button window to anchor to.
+    func setIconVisible(_ visible: Bool) {
+        guard statusItem.isVisible != visible else { return }
+        statusItem.isVisible = visible
     }
 
     private func open() {
@@ -59,18 +75,27 @@ final class StatusBarController: NSObject {
         // settings 50 times in a row only hits the network once per 4h.
         updateChecker.checkInBackground()
 
-        guard let button = statusItem.button,
-              let buttonWindow = button.window else { return }
-        let buttonRectInWindow = button.convert(button.bounds, to: nil)
-        let buttonRectOnScreen = buttonWindow.convertToScreen(buttonRectInWindow)
         let panelSize = panel.frame.size
-        let screen = NSScreen.screens.first(where: { $0.frame.contains(buttonRectOnScreen.origin) }) ?? NSScreen.main
+        let anchorRect = statusItemAnchorRect()
+        let screen = anchorRect.flatMap { rect in
+            NSScreen.screens.first(where: { $0.frame.contains(rect.origin) })
+        } ?? NSScreen.main
         let visible = screen?.visibleFrame ?? .zero
 
-        var origin = NSPoint(
-            x: buttonRectOnScreen.midX - panelSize.width / 2,
-            y: buttonRectOnScreen.minY - panelSize.height - 6
-        )
+        var origin: NSPoint
+        if let anchorRect {
+            origin = NSPoint(
+                x: anchorRect.midX - panelSize.width / 2,
+                y: anchorRect.minY - panelSize.height - 6
+            )
+        } else {
+            // Menu bar icon hidden (or not laid out yet): there is no
+            // anchor to hang the popover from, so centre it on screen.
+            origin = NSPoint(
+                x: visible.midX - panelSize.width / 2,
+                y: visible.midY - panelSize.height / 2
+            )
+        }
         origin.x = max(visible.minX + 8, min(origin.x, visible.maxX - panelSize.width - 8))
         origin.y = max(visible.minY + 8, origin.y)
 
@@ -78,6 +103,15 @@ final class StatusBarController: NSObject {
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
         startOutsideClickMonitoring()
+    }
+
+    /// Screen rect of the status item button, if it is currently in the
+    /// menu bar. Nil when the icon is hidden or AppKit hasn't laid the
+    /// button out yet.
+    private func statusItemAnchorRect() -> NSRect? {
+        guard statusItem.isVisible, let button = statusItem.button else { return nil }
+        guard let buttonWindow = button.window else { return nil }
+        return buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
     }
 
     private func close() {
