@@ -143,6 +143,10 @@ struct MenuBarSettingsView: View {
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 10)
+        // The header strip doubles as a window drag handle. Buttons and the
+        // title button sit above this AppKit background, so they keep their
+        // own clicks while empty header space moves the panel.
+        .background(WindowDragHandle())
     }
 
     /// Root-page title: "atst" name + clickable version tag. The tag
