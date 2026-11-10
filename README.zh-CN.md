@@ -9,7 +9,7 @@
 `a`(i) · `t`ext · `s`elect · `t`ranslate
 
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-000000?logo=apple&logoColor=white)](#要求)
-[![Version](https://img.shields.io/badge/version-v0.4.0-blue)](https://github.com/itaober/atst/releases/latest)
+[![Version](https://img.shields.io/badge/version-v0.5.0-blue)](https://github.com/okayzk/atst/releases/latest)
 [![License](https://img.shields.io/badge/license-Apache--2.0-orange)](./LICENSE)
 
 按下快捷键，立刻得到翻译。内置 Google + Microsoft + DeepL 接口**开箱即用**；配置自己的 AI 模型后还能解锁词典级释义、IPA 音标和智能解释。
@@ -28,7 +28,7 @@
 - 🖼️ **截图翻译** — 按 `⌥S` 框选区域即可翻译。默认走本地 Vision OCR（快 + 隐私 + 免费）；OCR 找不到文字时自动 fallback 到 AI 视觉
 - 🔀 **多源并列对照** — Google、Microsoft 和 DeepL 结果显示在上方，AI 结果在下方；每条结果都能单独切换服务或折叠
 - 🧠 **AI 词典模式** — 单词查询能返回多个义项、IPA 音标、用法解释
-- 📖 **查词** — 单词和固定搭配显示独立词典卡片，包含英美音标和发音播放、分组释义、双语例句和相关词组；主源为有道，macOS 内置词典作为离线兜底
+- 📖 **查词** — 单词和固定搭配显示独立词典卡片，包含英美音标和发音播放、分组释义、双语例句和相关词组；主源为有道，macOS 内置词典作为离线兜底，词典命中时默认跳过翻译
 - 📌 **固定为便签** — 把翻译结果钉成悬浮便签；便签保留单条结果的切换、折叠和原文编辑，也能取消固定回到普通浮窗
 - 💾 **本地缓存** — 重复查询命中 JSON 缓存，按 provider 分别缓存，TTL 和容量上限可配
 - 🫧 **原生 Liquid Glass** — 支持的 macOS 26+ 环境会让翻译浮窗和固定便签使用 Liquid Glass；旧系统自动回退到原来的材质
@@ -59,7 +59,7 @@
 
 ### 下载最新版本
 
-1. 在 [Releases 页面](https://github.com/itaober/atst/releases) 下载最新的 `atst.dmg`
+1. 在 [Releases 页面](https://github.com/okayzk/atst/releases) 下载最新的 `atst.dmg`
 2. 打开 DMG，把 **atst** 拖到 `应用程序` 文件夹
 3. 启动 atst — 菜单栏右上角会出现 **`atst`** 字样
 4. 首次启动时 atst 会请求 **辅助功能** 权限——没有它全局快捷键无法工作。点 **打开系统设置**，在 隐私与安全性 → 辅助功能 里打开 atst。错过了对话框？点菜单栏的 atst 字样，用权限行右侧的齿轮按钮
@@ -72,7 +72,7 @@
 需要 **macOS 14+** 和 **Swift 5.9+**（Xcode 15 或 Command Line Tools）。
 
 ```bash
-git clone https://github.com/itaober/atst.git
+git clone https://github.com/okayzk/atst.git
 cd atst
 
 # 快速调试运行
@@ -110,7 +110,7 @@ header 显示检测到的源语言和目标语言（例如 `英语 → 简体中
 
 每行右侧有独立的复制按钮。整个浮窗 **拖动 header 可以移动位置**；按 `Esc` 或点击外部关闭。点击 header 的 📌 图标可以固定成便签。便签保留同样的切换、折叠和原文编辑控件；标题栏的取消固定按钮会把它变回普通浮窗，× 则直接关闭。
 
-每条结果的标题右侧还有一个 **切换按钮**（列出当前未使用的其他已启用服务）和一个 **折叠箭头**。折叠只是隐藏该行，不会重新翻译；编辑原文再翻译时会全部展开。切换菜单分割线下的选项会保留当前行，并一次性调用其他所有已启用的服务。
+每条结果的标题右侧还有一个 **切换按钮**（列出当前未使用的其他已启用服务）和一个 **折叠箭头**。折叠只是隐藏该行，不会重新翻译。
 
 某个翻译源连续失败 3 次（网络被墙、接口挂了）后，它那一行会折叠成一行小字并带一个 **停用** 按钮，不再每次刷红。
 
@@ -148,7 +148,7 @@ API 子页还有可选的 **回退** 开关：某个 provider 失败或不可达
 
 **查词** 子页显示来源状态、macOS 词典的测试按钮、**手动下载** 指引（打开 Dictionary.app 并列出安装「牛津英汉汉英词典」的步骤）、1–4 个词的查词上限，以及默认开启的 **有词典释义时不调用翻译** 开关。
 
-下方新增 **默认翻译服务**，用来选择每次新翻译实际调用的服务，可多选；未勾选的服务仍可在单条结果的标题菜单里随时切换。
+**默认翻译服务**用来选择每次新翻译实际调用的服务，可多选；未勾选的服务仍可在单条结果的标题菜单里随时切换。
 
 #### AI 配置（可选）
 
@@ -182,12 +182,13 @@ API 子页还有可选的 **回退** 开关：某个 provider 失败或不可达
 |---|---|---|---|---|---|---|
 | Google（内置） | ❌ | ✅ | — | ❌ | ❌ | ❌ |
 | Microsoft（内置） | ❌ | ✅ | — | ❌ | ❌ | ❌ |
-| DeepL（内置，非官方） | ❌ | ✅（单次 1500 字符） | — | ❌ | ❌ | ❌ |
+| DeepL（内置） | ❌ | ✅（单次 1500 字符） | — | ❌ | ❌ | ❌ |
 | OpenAI 兼容 | ✅ | 看接口 | ✅ | ✅ | ✅ | ✅ |
 
 ### 其他细节
 
 - **智能浮窗定位** — Web 风格的 flip 算法；浮窗永远不会被推到屏幕外，也不会盖住你选中的内容
+- **词典卡片** — 英文单词和短固定搭配显示英美音标、发音、分组释义和双语例句；默认命中词典时跳过 API/AI 翻译，查词设置页管理来源、系统词典下载指引和词数上限
 - **自适应玻璃表面** — macOS 26+ 与 Swift 6.2+ 构建下使用原生 Liquid Glass；更早的 macOS 继续使用 AppKit `NSVisualEffectView` toolTip 材质
 - **缓存统计** — 显示缓存条目数和占用磁盘大小，一键清空
 - **无法翻译识别** — 专有名词 / 品牌名 / 拼写错误会标识 🔘 并跳过缓存
@@ -223,19 +224,6 @@ API 子页还有可选的 **回退** 开关：某个 provider 失败或不可达
 
 ---
 
-## 后续计划
-
-考虑中的功能（欢迎开 issue 投票）：
-
-- [ ] 自定义 HTTP 翻译 provider（模板驱动，自己接 DeepL / Lingva / Libretranslate）
-- [ ] 翻译历史 + 全文检索
-- [ ] 通用二进制（Intel + Apple Silicon）发布包
-- [ ] Apple 公证 + 正规代码签名（不用再右键 → 打开）
-
-词典相关的暂缓规划（离线词典包、繁体中文、更多语种）记录在 [ROADMAP.zh-CN.md](./ROADMAP.zh-CN.md)。
-
----
-
 ## License
 
 Apache 2.0 — 详见 [LICENSE](./LICENSE)。
@@ -244,4 +232,5 @@ Apache 2.0 — 详见 [LICENSE](./LICENSE)。
 
 - macOS [Vision framework](https://developer.apple.com/documentation/vision) 提供 OCR 能力
 - OpenAI Chat Completions 协议 —— 几乎所有现代 LLM 接口都兼容
-- 与作者协作使用 [Claude Code](https://claude.com/claude-code) 完成
+- **原项目** — [atst](https://github.com/itaober/atst) 由 [@itaober](https://github.com/itaober) 开发；本仓库是在其基础上的二次开发，原始架构和核心翻译流程归原作者所有。
+- 使用 [DeepSeek](https://www.deepseek.com/) 辅助开发。

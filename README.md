@@ -9,7 +9,7 @@
 `a`(i) · `t`ext · `s`elect · `t`ranslate
 
 [![macOS 14+](https://img.shields.io/badge/macOS-14%2B-000000?logo=apple&logoColor=white)](#requirements)
-[![Version](https://img.shields.io/badge/version-v0.4.0-blue)](https://github.com/itaober/atst/releases/latest)
+[![Version](https://img.shields.io/badge/version-v0.5.0-blue)](https://github.com/okayzk/atst/releases/latest)
 [![License](https://img.shields.io/badge/license-Apache--2.0-orange)](./LICENSE)
 
 Hit a hotkey, get a translation. Works **out of the box** with built-in Google + Microsoft + DeepL adapters, and unlocks AI-grade dictionary / explanation when you bring your own model.
@@ -28,7 +28,7 @@ Hit a hotkey, get a translation. Works **out of the box** with built-in Google +
 - 🖼️ **Screenshot translation** — press `⌥S`, drag a region, get the translation. On-device Vision OCR by default (fast + private + free); falls back to AI vision if you've configured one
 - 🔀 **Multi-source side-by-side** — Google, Microsoft and DeepL results stack above your AI result, each with its own switch and collapse controls
 - 🧠 **AI dictionary mode** — for single words, AI providers can return multiple meanings, IPA phonetics, and a short usage explanation
-- 📖 **Dictionary lookup** — a dedicated card for single words and short fixed phrases, with UK/US IPA and pronunciation playback, grouped senses, bilingual examples and related phrases; Youdao is the primary source, macOS's built-in dictionary is the offline fallback
+- 📖 **Dictionary lookup** — a dedicated card for single words and short fixed phrases, with UK/US IPA and pronunciation playback, grouped senses, bilingual examples and related phrases; Youdao is the primary source, macOS's built-in dictionary is the offline fallback, and a dictionary hit skips translation by default
 - 📌 **Pin as note** — detach a translation into a floating sticky note that keeps the per-result controls and can be unpinned back into the tooltip
 - 💾 **Local cache** — repeat lookups hit a JSON cache, scoped per provider; configurable TTL and size cap
 - 🫧 **Native Liquid Glass** — translation tooltips and pinned notes use Liquid Glass on macOS 26+ when available, with an automatic fallback on older systems
@@ -59,7 +59,7 @@ Hit a hotkey, get a translation. Works **out of the box** with built-in Google +
 
 ### Download the latest release
 
-1. Grab the latest `atst.dmg` from the [Releases page](https://github.com/itaober/atst/releases)
+1. Grab the latest `atst.dmg` from the [Releases page](https://github.com/okayzk/atst/releases)
 2. Open the DMG and drag **atst** into your `Applications` folder
 3. Launch atst — a small **`atst`** label appears in your menu bar (top-right of the screen)
 4. On first launch atst asks for **Accessibility** permission. The global hotkeys can't work without it, so click **Open System Settings** and switch atst on under Privacy & Security → Accessibility. Skipped the dialog? Click the menu bar label and use the gear next to the permission row
@@ -72,7 +72,7 @@ Hit a hotkey, get a translation. Works **out of the box** with built-in Google +
 Requires **macOS 14+** and **Swift 5.9+** (Xcode 15 / Command Line Tools).
 
 ```bash
-git clone https://github.com/itaober/atst.git
+git clone https://github.com/okayzk/atst.git
 cd atst
 
 # Quick dev build
@@ -110,7 +110,7 @@ The header shows the detected source language and the target (e.g. `English → 
 
 Each row has its own copy button. The whole tooltip is **draggable from its header** if you want to move it out of the way; `Esc` or a click outside dismisses it. Click the pin (📌) in the header to detach it into a sticky note. The note has the same switch, collapse and source-edit controls; its pin-slash button unpins it back into a normal tooltip, while × removes it.
 
-Every result header also has a **switch button** (choose another enabled service that isn't already on screen) and a **collapse chevron**. Collapsing only hides that row — it never re-runs a translation — and editing the original and translating again expands everything. The switch menu's item below the divider keeps the current row and calls every other enabled service at once.
+Every result header also has a **switch button** (choose another enabled service that isn't already on screen) and a **collapse chevron**. Collapsing only hides that row — it never re-runs a translation.
 
 If a provider fails three times in a row (blocked network, dead endpoint) its row collapses to a single line with a **Disable** button, so it stops shouting on every translation.
 
@@ -148,7 +148,7 @@ The API subpage also has an optional **Fallback** toggle: when a provider fails 
 
 The **Dictionary** subpage shows the source status, a Test button for the macOS dictionary, a **Manually Download** guide (opens Dictionary.app and lists the steps to install 牛津英汉汉英词典), the 1–4 word lookup limit and a **Skip translation when a definition exists** switch (on by default).
 
-Below them, **Default translation services** picks which of the enabled services run on every new translation. Select one or several; anything left unchecked stays one click away in each result's switch menu.
+**Default translation services** picks which of the enabled services run on every new translation. Select one or several; anything left unchecked stays one click away in each result's switch menu.
 
 #### AI configuration (optional)
 
@@ -182,12 +182,13 @@ Add or remove recognition languages from the chip row below. Default: Simplified
 |---|---|---|---|---|---|---|
 | Google (built-in) | ❌ | ✅ | — | ❌ | ❌ | ❌ |
 | Microsoft (built-in) | ❌ | ✅ | — | ❌ | ❌ | ❌ |
-| DeepL (built-in, unofficial) | ❌ | ✅ (1500 chars/request) | — | ❌ | ❌ | ❌ |
+| DeepL (built-in) | ❌ | ✅ (1500 chars/request) | — | ❌ | ❌ | ❌ |
 | OpenAI-compatible | ✅ | depends | ✅ | ✅ | ✅ | ✅ |
 
 ### Other goodies
 
 - **Smart tooltip placement** — Web-style flip algorithm; tooltip never gets pushed off-screen or covers your selection
+- **Dictionary card** — English words and short phrases get UK/US IPA, pronunciation, grouped senses and bilingual examples; a hit skips API/AI translation by default, and the Dictionary settings page manages sources, the system-dictionary guide and the word limit
 - **Adaptive glass surface** — native Liquid Glass on macOS 26+ with Swift 6.2+ builds; older macOS versions keep the AppKit `NSVisualEffectView` tooltip material
 - **Cache stats** — see how many entries are cached and how much disk they're using, with a one-click clear button
 - **Untranslatable detection** — proper nouns / brands / misspellings get a 🔘 marker and skip the cache
@@ -223,19 +224,6 @@ Add or remove recognition languages from the chip row below. Default: Simplified
 
 ---
 
-## Roadmap
-
-Things on the radar (open an issue if you'd like to vote one up):
-
-- [ ] Custom HTTP translation providers (template-driven; bring your own DeepL / Lingva / Libretranslate)
-- [ ] Translation history with full-text search
-- [ ] Universal (Intel + Apple Silicon) release binary
-- [ ] Apple Notarization + proper code signing (no more right-click → Open)
-
-Deferred dictionary plans (offline dictionary packs, traditional Chinese, more languages) are recorded in [ROADMAP.md](./ROADMAP.md).
-
----
-
 ## License
 
 Apache 2.0 — see [LICENSE](./LICENSE) for details.
@@ -244,4 +232,5 @@ Apache 2.0 — see [LICENSE](./LICENSE) for details.
 
 - macOS [Vision framework](https://developer.apple.com/documentation/vision) for the OCR engine
 - The OpenAI Chat Completions protocol — adopted by virtually every modern LLM endpoint
-- Built with [Claude Code](https://claude.com/claude-code) in collaboration with the author
+- **Original project** — [atst](https://github.com/itaober/atst) by [@itaober](https://github.com/itaober). This repository is a secondary development based on it; the original architecture and core translation flow are the original author's work.
+- Built with [DeepSeek](https://www.deepseek.com/).

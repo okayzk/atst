@@ -4,7 +4,7 @@
 
 所有显著变更都记录在这里，每个版本段落就是对应 GitHub release notes 的内容。
 
-## Unreleased
+## v0.5.0
 
 - **PopClip 扩展** — 选中文本后在 PopClip 里点 **atst** 即可就地翻译；app 新增 `atst://translate?text=…` URL scheme，让外部启动器把文本交给现有翻译流程（源码在 `PopClip-plugin/`）
 - **手动输入保留原文** — 回车后原文显示在译文上方；点击原文即可重新打开编辑器（下方保留上一次的译文），修改后再次翻译

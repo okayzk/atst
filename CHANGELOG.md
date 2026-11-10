@@ -4,7 +4,7 @@
 
 All notable changes are recorded here. Each version section is what gets pasted into the matching GitHub release notes.
 
-## Unreleased
+## v0.5.0
 
 - **PopClip extension** — select text, click **atst** in the PopClip bar, and the tooltip translates it in place; the app now registers an `atst://translate?text=…` URL scheme so external launchers can hand text to the existing translation pipeline (source in `PopClip-plugin/`)
 - **Manual input keeps the original** — after Return the source stays visible above the result; click it to reopen the editor (with the previous result still shown underneath) and translate again
