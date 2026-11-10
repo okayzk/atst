@@ -239,26 +239,21 @@ struct TranslationResultView: View {
         }
     }
 
-    /// One geometry for every header icon: a 10×10 image inside a 16×16 hit
-    /// area, tertiary tint. Keeps refresh / pin / unpin / close identical.
+    /// One geometry for every header icon: a 10×10 glyph inside a 16×16 hit
+    /// area, shared tint. Keeps refresh / pin / unpin / close identical to
+    /// the switch / collapse / copy controls on each result row.
     private func headerIconButton(
         _ systemName: String,
         help: String,
         rotation: Double = 0,
         action: @escaping () -> Void
     ) -> some View {
-        Button(action: action) {
-            Image(systemName: systemName)
-                .resizable()
-                .scaledToFit()
-                .frame(width: 10, height: 10)
-                .foregroundStyle(.tertiary)
-                .rotationEffect(.degrees(rotation))
-                .frame(width: 16, height: 16)
-                .contentShape(Rectangle())
-        }
-        .buttonStyle(.borderless)
-        .help(help)
+        ResultIconButton(
+            systemName: systemName,
+            help: help,
+            rotation: rotation,
+            action: action
+        )
     }
 
     private var canPin: Bool {

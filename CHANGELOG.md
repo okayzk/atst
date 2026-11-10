@@ -15,7 +15,7 @@ All notable changes are recorded here. Each version section is what gets pasted 
 - **Pinned notes are live sessions** — pinning now detaches the translation into an independent session that uses the same result view, so service switching, collapsing and original-text editing keep working; the note header gained an unpin action that returns it to the normal tooltip (× still closes it)
 - **Microsoft translation works again** — the Edge JWT auth endpoint was retired (now 404); migrated to the unauthenticated `edge.microsoft.com/translate/translatetext` endpoint
 - **Service reachability** — API provider names in settings carry a dot checked automatically when the page opens; the AI page has a Test button with a dot next to its label
-- The switch menu shows the concrete AI model name instead of "AI"; result header icons and the copy button now share one size and tint, and pin/unpin swaps windows without a fade flash
+- The switch menu shows the concrete AI model name instead of "AI"; every result icon now renders at the same 10 pt size and tint, with the outline-heavy pin / copy glyphs bumped so their strokes match xmark and chevron; pin/unpin swaps windows without a fade flash
 
 ## v0.4.0
 

@@ -1,6 +1,86 @@
 import AppKit
 import SwiftUI
 
+// MARK: - Shared icon style
+
+/// Every small control icon (refresh, pin, close, switch, collapse, copy)
+/// renders through this one style. SF Symbols already share an optical
+/// scale and stroke weight at a given point size; forcing them into a
+/// common square shrank the tall glyphs (pin, copy, switch) and made their
+/// strokes thinner than xmark / chevron. Render them at their natural size
+/// instead, inside the same 16×16 hit area.
+enum ResultIconStyle {
+    static let pointSize: CGFloat = 10
+    static let hit: CGFloat = 16
+    static let defaultWeight: NSFont.Weight = .medium
+    static let defaultFontWeight: Font.Weight = .medium
+    static let nsTint: NSColor = .tertiaryLabelColor
+    static let tint = Color(nsColor: nsTint)
+
+    /// Outline-heavy glyphs (the pushpin and the copy documents) read
+    /// lighter than xmark / chevron at the same weight, so bump just those.
+    /// Their ink bounds stay the same; only the strokes thicken.
+    static func weight(for name: String) -> NSFont.Weight {
+        needsHeavierStroke(name) ? .semibold : defaultWeight
+    }
+
+    static func fontWeight(for name: String) -> Font.Weight {
+        needsHeavierStroke(name) ? .semibold : defaultFontWeight
+    }
+
+    private static func needsHeavierStroke(_ name: String) -> Bool {
+        switch name {
+        case "pin", "pin.slash", "doc.on.doc", "checkmark":
+            return true
+        default:
+            return false
+        }
+    }
+
+    /// The AppKit switch button uses the same symbol configuration as the
+    /// SwiftUI icons so its glyph can't drift in size or weight.
+    static func image(_ name: String) -> NSImage? {
+        let configuration = NSImage.SymbolConfiguration(pointSize: pointSize, weight: weight(for: name))
+        let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)?
+            .withSymbolConfiguration(configuration)
+        image?.isTemplate = true
+        return image
+    }
+}
+
+/// One glyph inside a 16×16 hit area. Use `ResultIconButton` for clickable
+/// icons; this view is for labels such as the copy feedback checkmark.
+struct ResultGlyph: View {
+    let systemName: String
+    var rotation: Double = 0
+    var tint: AnyShapeStyle = AnyShapeStyle(ResultIconStyle.tint)
+
+    var body: some View {
+        Image(systemName: systemName)
+            .font(.system(size: ResultIconStyle.pointSize, weight: ResultIconStyle.fontWeight(for: systemName)))
+            .foregroundStyle(tint)
+            .rotationEffect(.degrees(rotation))
+            .frame(width: ResultIconStyle.hit, height: ResultIconStyle.hit)
+            .contentShape(Rectangle())
+    }
+}
+
+struct ResultIconButton: View {
+    let systemName: String
+    let help: String
+    var rotation: Double = 0
+    var tint: AnyShapeStyle = AnyShapeStyle(ResultIconStyle.tint)
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            ResultGlyph(systemName: systemName, rotation: rotation, tint: tint)
+        }
+        .buttonStyle(.borderless)
+        .help(help)
+    }
+}
+
 // MARK: - Copy button
 
 /// Copy-to-pasteboard icon button with a 1.2s "copied" checkmark. Owns
@@ -25,13 +105,10 @@ struct CopyButton: View {
                 if !Task.isCancelled { copied = false }
             }
         } label: {
-            Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 10, height: 10)
-                .foregroundStyle(copied ? AnyShapeStyle(Color.green) : AnyShapeStyle(.tertiary))
-                .frame(width: 16, height: 16)
-                .contentShape(Rectangle())
+            ResultGlyph(
+                systemName: copied ? "checkmark" : "doc.on.doc",
+                tint: copied ? AnyShapeStyle(Color.green) : AnyShapeStyle(ResultIconStyle.tint)
+            )
         }
         .buttonStyle(.borderless)
         .help(copied ? L.pick("Copied", "已复制") : tooltip)
@@ -77,13 +154,9 @@ struct SegmentHeader: View {
                 }
                 if let onToggleCollapse = controls.onToggleCollapse {
                     Button(action: onToggleCollapse) {
-                        Image(systemName: controls.collapsed ? "chevron.right" : "chevron.down")
-                            .resizable()
-                            .scaledToFit()
-                            .frame(width: 10, height: 10)
-                            .foregroundStyle(.tertiary)
-                            .frame(width: 16, height: 16)
-                            .contentShape(Rectangle())
+                        ResultGlyph(
+                            systemName: controls.collapsed ? "chevron.right" : "chevron.down"
+                        )
                     }
                     .buttonStyle(.borderless)
                     .help(controls.collapsed
@@ -126,14 +199,8 @@ struct SwitchMenuButton: NSViewRepresentable {
     }
 
     private func updateImage(_ button: NSButton) {
-        let configuration = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
-        let image = NSImage(
-            systemSymbolName: "arrow.left.arrow.right",
-            accessibilityDescription: nil
-        )?.withSymbolConfiguration(configuration)
-        image?.isTemplate = true
-        button.image = image
-        button.contentTintColor = .tertiaryLabelColor
+        button.image = ResultIconStyle.image("arrow.left.arrow.right")
+        button.contentTintColor = ResultIconStyle.nsTint
     }
 
     func makeCoordinator() -> Coordinator {
