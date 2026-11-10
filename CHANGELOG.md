@@ -4,6 +4,13 @@
 
 All notable changes are recorded here. Each version section is what gets pasted into the matching GitHub release notes.
 
+## v0.6.0
+
+- **Dictionary card, re-typeset** — a 21 pt headword with the source name on the same line, section headers carried by a hairline rule, 14 pt meanings on a hanging indent, and related words folded behind **Show all**. The nested card surface, the "Dictionary · Youdao" row and the CET tag line are gone, so the entry sits directly on the tooltip material
+- **Result rows read as sections** — each provider gets a name + hairline header, the body grows to 14 pt (API) / 15 pt (AI), providers sit 16 pt apart, and the copy icon only appears while the pointer is over that provider
+- **Show AI result first** — a new toggle under AI Translation → Status puts the AI block above the Google / Microsoft / DeepL rows
+- Dictionary lookups use a 400 pt column instead of 320 pt so the larger type wraps less; the "looking up dictionary…" row no longer paints its own background; the header status dot is removed
+
 ## v0.5.0
 
 - **PopClip extension** — select text, click **atst** in the PopClip bar, and the tooltip translates it in place; the app now registers an `atst://translate?text=…` URL scheme so external launchers can hand text to the existing translation pipeline (source in `PopClip-plugin/`)
