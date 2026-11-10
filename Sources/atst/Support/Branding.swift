@@ -9,7 +9,7 @@ enum Branding {
 
     /// GitHub repo path used for the update-check API call and as a
     /// destination for the "open release page" deep link.
-    static let githubRepoPath = "itaober/atst"
+    static let githubRepoPath = "okayzk/atst"
 
     /// Human-readable version string for display in the settings header
     /// and elsewhere.

@@ -142,11 +142,11 @@ EOF
 
 echo "→ Creating GitHub release"
 gh release create "$VERSION" \
-  --repo itaober/atst \
+  --repo okayzk/atst \
   --title "$VERSION" \
   --notes-file "$NOTES_FILE" \
   "$DMG_PATH"
 
 rm -f "$NOTES_FILE"
 
-echo "✓ Released $VERSION → https://github.com/itaober/atst/releases/tag/$VERSION"
+echo "✓ Released $VERSION → https://github.com/okayzk/atst/releases/tag/$VERSION"

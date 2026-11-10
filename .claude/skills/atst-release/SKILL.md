@@ -136,7 +136,7 @@ On success it prints the release URL.
 
 ## Step 6 — (Optional) Verify
 
-Open `https://github.com/itaober/atst/releases/tag/vX.Y.Z` and confirm:
+Open `https://github.com/okayzk/atst/releases/tag/vX.Y.Z` and confirm:
 - Title is exactly `vX.Y.Z`
 - Both English and Chinese sections render with all bullets
 - DMG is attached
@@ -161,7 +161,7 @@ You can edit the release body after the fact without rebuilding the DMG:
 
 ```bash
 # Edit one of the CHANGELOG files, then:
-gh release edit vX.Y.Z --repo itaober/atst --notes-file <(cat <<'EOF'
+gh release edit vX.Y.Z --repo okayzk/atst --notes-file <(cat <<'EOF'
 ## English
 
 <corrected bullets>
@@ -178,7 +178,7 @@ You can also pass `--title "vX.Y.Z"` if the title got corrupted.
 ### You need to delete a release entirely
 
 ```bash
-gh release delete vX.Y.Z --repo itaober/atst --yes
+gh release delete vX.Y.Z --repo okayzk/atst --yes
 git tag -d vX.Y.Z
 git push --delete origin vX.Y.Z
 ```
