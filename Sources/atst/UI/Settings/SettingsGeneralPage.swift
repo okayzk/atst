@@ -19,6 +19,7 @@ struct SettingsGeneralPage: View {
     var debouncedSave: () -> Void
     var openAIPage: () -> Void
     var openAPIPage: () -> Void
+    var openDictionaryPage: () -> Void
 
     @State private var accessibilityTrusted = PermissionChecker.isAccessibilityTrusted
     @State private var screenRecordingTrusted = PermissionChecker.isScreenRecordingTrusted
@@ -196,7 +197,21 @@ struct SettingsGeneralPage: View {
                 isOn: $draft.aiEnabled,
                 onTap: openAIPage
             )
+            Divider().padding(.horizontal, 10)
+            translatorNavRow(
+                title: L.pick("Dictionary", "查词"),
+                subtitle: dictionarySubtitle,
+                isOn: $draft.dictionaryEnabled,
+                onTap: openDictionaryPage
+            )
         }
+    }
+
+    private var dictionarySubtitle: String {
+        if !draft.dictionaryEnabled {
+            return L.pick("Off", "已关闭")
+        }
+        return L.pick("Youdao · macOS Dictionary", "有道 · 系统词典")
     }
 
     private var aiSubtitle: String {

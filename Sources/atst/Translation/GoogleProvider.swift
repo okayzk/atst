@@ -6,6 +6,11 @@ import Foundation
 /// JS. May break or get rate-limited at any time; we surface a clean error
 /// when that happens so the user can disable it from settings.
 ///
+/// Risk: unofficial endpoint, no SLA. The baked-in public key can rotate, the
+/// protobuf request shape can change, and the host can be rate-limited or
+/// blocked. This is a best-effort source, not a stable API; failures surface
+/// as normal provider errors and never break the other providers.
+///
 /// Request shape:
 ///   POST https://translate-pa.googleapis.com/v1/translateHtml
 ///   Headers:

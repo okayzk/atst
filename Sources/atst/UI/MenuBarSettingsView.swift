@@ -4,6 +4,7 @@ import SwiftUI
 private enum SettingsRoute: Hashable {
     case aiPage
     case apiPage
+    case dictionaryPage
     case translationPrompts
 }
 
@@ -51,7 +52,8 @@ struct MenuBarSettingsView: View {
                         save: save,
                         debouncedSave: debouncedSave,
                         openAIPage: { routeStack.append(.aiPage) },
-                        openAPIPage: { routeStack.append(.apiPage) }
+                        openAPIPage: { routeStack.append(.apiPage) },
+                        openDictionaryPage: { routeStack.append(.dictionaryPage) }
                     )
                 case .aiPage:
                     SettingsAIPage(
@@ -62,6 +64,8 @@ struct MenuBarSettingsView: View {
                     )
                 case .apiPage:
                     SettingsAPIPage(draft: $draft, save: save)
+                case .dictionaryPage:
+                    SettingsDictionaryPage(draft: $draft, save: save)
                 case .translationPrompts:
                     SettingsPromptsPage(draft: $draft, save: save)
                 }
@@ -207,6 +211,7 @@ struct MenuBarSettingsView: View {
         case .none: return Branding.appName
         case .aiPage: return L.pick("AI Translation", "AI 翻译")
         case .apiPage: return L.pick("API Translation", "API 翻译")
+        case .dictionaryPage: return L.pick("Dictionary", "查词")
         case .translationPrompts: return L.pick("Translation Prompts", "翻译提示词")
         }
     }

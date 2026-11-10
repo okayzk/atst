@@ -35,6 +35,12 @@ import Foundation
 ///
 /// Anonymous traffic is capped at 1500 UTF-16 code units per request, so
 /// long selections are split across several requests by line.
+///
+/// Risk: unofficial endpoint, no SLA. The advertised iOS client profile must
+/// stay close to the current App Store release (a stale version is treated as
+/// a bot signal), anonymous traffic is rate-limited (HTTP 429), and the
+/// endpoint can change or start rejecting anonymous clients. Failures surface
+/// as normal provider errors so the user can disable the row.
 struct DeepLProvider: TranslationProvider {
     let id: TranslationProviderID = .deepl
     let displayName: String = "DeepL"

@@ -30,6 +30,9 @@ final class TranslatorViewModel: ObservableObject {
     /// whenever a new selection arrives so older results can't write into
     /// the newer state.
     private var activeTextSegmentTasks: [TranslationProviderID: Task<Void, Never>] = [:]
+    /// One dictionary lookup at a time. Dictionary data is auxiliary: it must
+    /// never keep a translation task alive or block the normal provider rows.
+    private var activeDictionaryTask: Task<Void, Never>?
     /// Per-provider run of failures since the last success, in memory only.
     /// Drives the collapsed "failed N times · Disable" row so a blocked
     /// endpoint stops shouting a full error on every translation.
@@ -90,13 +93,35 @@ final class TranslatorViewModel: ObservableObject {
         let detection = LanguageDetector.detect(source)
         var target = configuration.targetLanguage
         let secondary = configuration.secondaryTargetLanguage.trimmingCharacters(in: .whitespacesAndNewlines)
-        if let detection, detection.confidence >= 0.5,
+        let targetCode = LanguageCode.bcp47(from: target)?.lowercased()
+        let secondaryCode = LanguageCode.bcp47(from: secondary)?.lowercased()
+
+        var sourceCode = detection?.code
+        var confidence = detection?.confidence ?? 0
+
+        // Short Latin words are inherently ambiguous ("General" is both
+        // English and Spanish; NaturalLanguage picks Spanish at 0.78). If the
+        // recognizer picked a language outside the user's configured pair,
+        // prefer a Latin language from that pair. Sentences are left alone.
+        if LanguageDetector.isShortLatinPhrase(source) {
+            let configured = [targetCode, secondaryCode].compactMap { $0 }
+            let detectedPrimary = sourceCode.map(LanguageDetector.primary)
+            let isConfigured = detectedPrimary.map { primary in
+                configured.contains { LanguageDetector.primary($0) == primary }
+            } ?? false
+            if !isConfigured, let latin = configured.first(where: LanguageDetector.isLatin) {
+                sourceCode = latin
+                confidence = max(confidence, 0.5)
+            }
+        }
+
+        if let sourceCode, confidence >= 0.5,
            !secondary.isEmpty, secondary != target,
-           let targetCode = LanguageCode.bcp47(from: target),
-           LanguageDetector.primary(detection.code) == LanguageDetector.primary(targetCode) {
+           let targetCode,
+           LanguageDetector.primary(sourceCode) == LanguageDetector.primary(targetCode) {
             target = secondary
         }
-        return (detection?.code, target)
+        return (sourceCode, target)
     }
 
     func beginScreenshotTranslation() {
@@ -133,6 +158,41 @@ final class TranslatorViewModel: ObservableObject {
 
         let languages = resolveLanguages(for: selection.text)
         let providers = buildEnabledProviders(targetLanguage: languages.target)
+
+        // Dictionary-first mode: for eligible words/phrases, wait for the
+        // dictionary before calling any translation provider. A hit shows the
+        // card alone; a miss starts the normal providers.
+        let dictionaryFirst = configuration.dictionaryEnabled
+            && configuration.dictionarySkipsTranslation
+            && DictionaryEligibility.isEligible(
+                text: selection.text,
+                targetLanguage: configuration.targetLanguage,
+                secondaryTargetLanguage: configuration.secondaryTargetLanguage,
+                maxWords: configuration.dictionaryMaxWords
+            )
+        if dictionaryFirst {
+            state = .text(TextSegments(
+                source: selection.text,
+                api: [],
+                ai: nil,
+                bothDisabled: false,
+                sourceLanguage: "en",
+                targetLanguage: preferredChineseTarget(),
+                sourceEditable: sourceEditable,
+                dictionary: DictionarySegment(state: .loading),
+                dictionaryFirst: true
+            ))
+            startDictionaryLookupIfNeeded(
+                source: selection.text,
+                bypassCache: bypassCache,
+                markLoading: false,
+                onMiss: { [weak self] in
+                    self?.startProvidersAfterDictionaryMiss(bypassCache: bypassCache)
+                }
+            )
+            return
+        }
+
         if noTranslatorEnabled {
             // Both top-level switches are off — short-circuit to the
             // empty-state tooltip with the "Open settings" CTA.
@@ -160,15 +220,31 @@ final class TranslatorViewModel: ObservableObject {
             return
         }
 
-        // Seed segments with a loading state so the tooltip lays out
-        // immediately. Cache hits flip individual segments to .success on
-        // the same frame.
+        startProviderTranslation(
+            source: selection.text,
+            sourceEditable: sourceEditable,
+            languages: languages,
+            providers: providers,
+            bypassCache: bypassCache
+        )
+        startDictionaryLookupIfNeeded(source: selection.text, bypassCache: bypassCache)
+    }
+
+    /// Seed and start the configured translation providers. Extracted so the
+    /// dictionary-first path can defer it until the dictionary misses.
+    private func startProviderTranslation(
+        source: String,
+        sourceEditable: Bool,
+        languages: (source: String?, target: String),
+        providers: [TranslationProvider],
+        bypassCache: Bool
+    ) {
         var apiSegments: [ProviderSegment] = []
         var aiSegment: ProviderSegment? = nil
         var sawCacheMiss = false
         for provider in providers {
             let id = provider.id
-            let cachedEntry = bypassCache ? nil : lookupCache(for: provider, source: selection.text, targetLanguage: languages.target)
+            let cachedEntry = bypassCache ? nil : lookupCache(for: provider, source: source, targetLanguage: languages.target)
             let initialState: SegmentState
             if let entry = cachedEntry {
                 initialState = .success(output: entry.output, latencyMs: nil, fromCache: true, cacheInfo: TranslationCache.CacheInfo(cachedAt: entry.createdAt, source: entry.source))
@@ -197,7 +273,7 @@ final class TranslatorViewModel: ObservableObject {
         }
 
         state = .text(TextSegments(
-            source: selection.text,
+            source: source,
             api: apiSegments,
             ai: aiSegment,
             bothDisabled: false,
@@ -216,10 +292,49 @@ final class TranslatorViewModel: ObservableObject {
             }
             let task: Task<Void, Never> = Task { [weak self] in
                 guard let self else { return }
-                await self.run(provider: provider, source: selection.text, targetLanguage: languages.target)
+                await self.run(provider: provider, source: source, targetLanguage: languages.target)
             }
             activeTextSegmentTasks[provider.id] = task
         }
+    }
+
+    /// Dictionary-first lookup missed: start the normal providers on the
+    /// selection that is already on screen. If there are no usable
+    /// translators, fall back to the usual empty state.
+    private func startProvidersAfterDictionaryMiss(bypassCache: Bool) {
+        guard case .text(let segments) = state, segments.dictionaryFirst else { return }
+
+        let languages = resolveLanguages(for: segments.source)
+        let providers = buildEnabledProviders(targetLanguage: languages.target)
+        if noTranslatorEnabled || providers.isEmpty {
+            state = .text(TextSegments(
+                source: segments.source,
+                api: [],
+                ai: nil,
+                bothDisabled: true,
+                sourceEditable: segments.sourceEditable
+            ))
+            return
+        }
+
+        startProviderTranslation(
+            source: segments.source,
+            sourceEditable: segments.sourceEditable,
+            languages: languages,
+            providers: providers,
+            bypassCache: bypassCache
+        )
+    }
+
+    /// The Chinese target shown while a dictionary-first lookup is running.
+    private func preferredChineseTarget() -> String {
+        if DictionaryEligibility.isSimplifiedChinese(configuration.targetLanguage) {
+            return configuration.targetLanguage
+        }
+        if DictionaryEligibility.isSimplifiedChinese(configuration.secondaryTargetLanguage) {
+            return configuration.secondaryTargetLanguage
+        }
+        return configuration.targetLanguage
     }
 
     func translateScreenshot(_ capture: ScreenshotCapture) async {
@@ -461,6 +576,121 @@ final class TranslatorViewModel: ObservableObject {
         addProviders(additions)
     }
 
+    // MARK: - Dictionary lookup
+
+    /// Dictionary data is auxiliary: start it in parallel with the normal
+    /// providers, never let it block them, and hide it silently when both
+    /// sources miss. Youdao is the primary source; the macOS system
+    /// dictionary is the single-word offline fallback.
+    private func startDictionaryLookupIfNeeded(
+        source: String,
+        bypassCache: Bool,
+        markLoading: Bool = true,
+        onMiss: (() -> Void)? = nil
+    ) {
+        guard configuration.dictionaryEnabled,
+              DictionaryEligibility.isEligible(
+                  text: source,
+                  targetLanguage: configuration.targetLanguage,
+                  secondaryTargetLanguage: configuration.secondaryTargetLanguage,
+                  maxWords: configuration.dictionaryMaxWords
+              ) else {
+            return
+        }
+
+        let generation = translationGeneration
+        activeDictionaryTask?.cancel()
+        if markLoading {
+            updateDictionary(DictionarySegment(state: .loading), generation: generation)
+        }
+        activeDictionaryTask = Task { [weak self] in
+            guard let self else { return }
+            await self.runDictionaryLookup(
+                query: source.trimmingCharacters(in: .whitespacesAndNewlines),
+                bypassCache: bypassCache,
+                generation: generation,
+                onMiss: onMiss
+            )
+        }
+    }
+
+    private func runDictionaryLookup(
+        query: String,
+        bypassCache: Bool,
+        generation: Int,
+        onMiss: (() -> Void)?
+    ) async {
+        let cacheKey = DictionaryCache.key(for: query)
+        if !bypassCache, configuration.cacheEnabled,
+           let cached = DictionaryCache.shared.get(key: cacheKey) {
+            updateDictionary(
+                DictionarySegment(state: .success(cached)),
+                generation: generation,
+                clearDictionaryFirst: true
+            )
+            return
+        }
+
+        do {
+            if let entry = try await YoudaoDictionaryService().lookup(query) {
+                try Task.checkCancellation()
+                if configuration.cacheEnabled {
+                    DictionaryCache.shared.put(key: cacheKey, entry: entry)
+                }
+                updateDictionary(
+                    DictionarySegment(state: .success(entry)),
+                    generation: generation,
+                    clearDictionaryFirst: true
+                )
+                return
+            }
+        } catch is CancellationError {
+            return
+        } catch {
+            AppLogger.log("youdao dict failed q=\(query): \(error)")
+        }
+
+        // The system dictionary only has single-word entries; phrases stay
+        // with Youdao. It is fully offline and returns in a few milliseconds.
+        if query.split(whereSeparator: \.isWhitespace).count == 1,
+           let entry = AppleDictionaryService.shared.lookup(query) {
+            if configuration.cacheEnabled {
+                DictionaryCache.shared.put(key: cacheKey, entry: entry)
+            }
+            updateDictionary(
+                DictionarySegment(state: .success(entry)),
+                generation: generation,
+                clearDictionaryFirst: true
+            )
+            return
+        }
+
+        // Dictionary-first mode: keep the loading state until the provider
+        // seeding replaces it, so the onMiss handler can see the flag.
+        if let onMiss {
+            guard generation == translationGeneration else { return }
+            onMiss()
+        } else {
+            updateDictionary(nil, generation: generation)
+        }
+    }
+
+    private func updateDictionary(
+        _ dictionary: DictionarySegment?,
+        generation: Int,
+        clearDictionaryFirst: Bool = false
+    ) {
+        guard generation == translationGeneration,
+              case .text(var segments) = state else {
+            return
+        }
+        segments.dictionary = dictionary
+        if clearDictionaryFirst {
+            segments.dictionaryFirst = false
+        }
+        state = .text(segments)
+    }
+
     /// Create an independent session for a pinned note. The note receives
     /// the current state and its own provider tasks, so switching,
     /// collapsing, and re-editing behave exactly like the live tooltip.
@@ -576,6 +806,8 @@ final class TranslatorViewModel: ObservableObject {
     private func cancelActiveTextTasks() {
         for task in activeTextSegmentTasks.values { task.cancel() }
         activeTextSegmentTasks.removeAll()
+        activeDictionaryTask?.cancel()
+        activeDictionaryTask = nil
     }
 
     /// Restart providers whose segment was still loading or streaming when
@@ -612,6 +844,18 @@ final class TranslatorViewModel: ObservableObject {
                 }
                 activeTextSegmentTasks[segment.id] = task
             }
+        }
+
+        if let dictionary = segments.dictionary, case .loading = dictionary.state {
+            let onMiss: (() -> Void)? = segments.dictionaryFirst
+                ? { [weak self] in self?.startProvidersAfterDictionaryMiss(bypassCache: false) }
+                : nil
+            startDictionaryLookupIfNeeded(
+                source: source,
+                bypassCache: false,
+                markLoading: false,
+                onMiss: onMiss
+            )
         }
     }
 
@@ -864,6 +1108,15 @@ struct TextSegments: Equatable {
     /// to edit and re-translate. Selection / PopClip / OCR sources leave
     /// this false.
     var sourceEditable: Bool = false
+    /// Optional dictionary card shown above the translation rows for eligible
+    /// single words / fixed phrases. `nil` means "not a dictionary lookup";
+    /// loading/success are independent of the provider segments.
+    var dictionary: DictionarySegment? = nil
+    /// True while a dictionary-first lookup is in flight and the normal
+    /// providers have deliberately not been started yet. On a dictionary
+    /// miss the view model starts the providers; on a hit the card stands
+    /// alone.
+    var dictionaryFirst: Bool = false
 
     /// "English → 简体中文" for the tooltip header; nil when nothing is known.
     var languagePairLabel: String? {
@@ -873,6 +1126,7 @@ struct TextSegments: Equatable {
     }
 
     var hasAnyContent: Bool {
+        if let dictionary, case .success = dictionary.state { return true }
         if let ai = ai, ai.state.hasContent { return true }
         return api.contains { $0.state.hasContent }
     }
@@ -906,6 +1160,18 @@ struct ProviderSegment: Equatable, Identifiable {
     /// Failures since this provider last succeeded (this app run). At
     /// `APISegmentsBlock.collapseAfterFailures` the row collapses.
     var consecutiveFailures: Int = 0
+}
+
+/// Dictionary lookup state carried alongside the provider segments. A
+/// failure removes the segment rather than surfacing an error row: the
+/// dictionary is an optional enhancement, not a translation provider.
+struct DictionarySegment: Equatable {
+    var state: DictionaryState
+}
+
+enum DictionaryState: Equatable {
+    case loading
+    case success(DictionaryEntry)
 }
 
 /// Per-segment lifecycle state. AI hits `.streaming(...)` between `.loading`

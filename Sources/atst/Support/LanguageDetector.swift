@@ -39,6 +39,25 @@ enum LanguageDetector {
         code.split(separator: "-").first.map(String.init) ?? code
     }
 
+    /// Languages in the Latin-script set the recognizer can answer with.
+    static func isLatin(_ code: String) -> Bool {
+        ["en", "fr", "de", "es", "it", "pt"].contains(primary(code))
+    }
+
+    /// 1–4 Latin words, ≤40 characters. These are the inputs where a
+    /// statistical language identifier is least reliable: "General" is a
+    /// valid English word but the recognizer confidently calls it Spanish.
+    static func isShortLatinPhrase(_ text: String) -> Bool {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty, trimmed.count <= 40 else { return false }
+        let words = trimmed.split(whereSeparator: \.isWhitespace)
+        guard (1...4).contains(words.count) else { return false }
+        let pattern = #"^[A-Za-z][A-Za-z'’-]*$"#
+        return words.allSatisfy {
+            $0.range(of: pattern, options: .regularExpression) != nil
+        }
+    }
+
     /// Human-readable language name in the current UI language
     /// ("English" / "英语", "Chinese" / "中文"), falling back to the tag.
     static func displayName(for code: String) -> String {

@@ -429,12 +429,27 @@ struct TranslationResultView: View {
             )
             : nil
 
+        let dictionaryEntry: DictionaryEntry? = {
+            if let dictionary = segments.dictionary, case .success(let entry) = dictionary.state {
+                return entry
+            }
+            return nil
+        }()
+
         VStack(alignment: .leading, spacing: 8) {
             if segments.sourceEditable {
                 sourceBlock(segments)
             }
+            if let dictionary = segments.dictionary, case .loading = dictionary.state {
+                dictionaryLoadingRow
+            }
+            if let dictionaryEntry {
+                DictionaryCard(entry: dictionaryEntry)
+            }
             if segments.bothDisabled {
-                emptyState
+                if dictionaryEntry == nil {
+                    emptyState
+                }
             } else {
                 if !segments.api.isEmpty {
                     APISegmentsBlock(
@@ -478,6 +493,27 @@ struct TranslationResultView: View {
                 }
             }
         }
+    }
+
+    /// Compact placeholder shown while a dictionary lookup is in flight.
+    /// In dictionary-first mode it is the only content until the lookup
+    /// resolves; in parallel mode it sits above the provider rows.
+    private var dictionaryLoadingRow: some View {
+        HStack(spacing: 7) {
+            ProgressView()
+                .controlSize(.small)
+                .scaleEffect(0.7)
+                .frame(height: 14)
+            Text(L.pick("Looking up dictionary…", "查词典…"))
+                .font(.system(size: 11))
+                .foregroundStyle(.secondary)
+            Spacer(minLength: 4)
+        }
+        .padding(8)
+        .background(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .fill(Color.primary.opacity(0.04))
+        )
     }
 
     /// The previous result rendered under the editor. The source block is

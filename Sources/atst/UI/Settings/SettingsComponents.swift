@@ -70,7 +70,7 @@ struct ProviderHealthIndicator: View {
 /// explanation, etc).
 struct SettingsToggleRow: View {
     let title: String
-    let subtitle: String
+    var subtitle: String = ""
     @Binding var isOn: Bool
     var onChange: () -> Void = {}
 
@@ -80,9 +80,11 @@ struct SettingsToggleRow: View {
                 Text(title)
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(.primary)
-                Text(subtitle)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                }
             }
             Spacer(minLength: 4)
             Toggle("", isOn: $isOn)

@@ -26,6 +26,7 @@ struct SettingsStatsSection: View {
                 Button(L.pick("Clear", "清空")) {
                     cache.clear()
                     stats.clear()
+                    DictionaryCache.shared.clear()
                 }
                 .controlSize(.small)
                 .fixedSize()

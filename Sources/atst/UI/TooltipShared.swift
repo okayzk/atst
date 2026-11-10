@@ -341,13 +341,28 @@ final class TooltipSpeaker {
     private let synthesizer = AVSpeechSynthesizer()
 
     func speak(_ text: String) {
+        speak(text, language: nil)
+    }
+
+    /// Speak with an explicit BCP-47 language when the caller knows the
+    /// accent (dictionary UK/US labels). Falls back to detected-language
+    /// voice selection when no matching voice is installed.
+    func speak(_ text: String, language: String?) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         synthesizer.stopSpeaking(at: .immediate)
         let utterance = AVSpeechUtterance(string: trimmed)
-        utterance.voice = Self.voice(for: trimmed)
+        if let language, let voice = AVSpeechSynthesisVoice(language: language) {
+            utterance.voice = voice
+        } else {
+            utterance.voice = Self.voice(for: trimmed)
+        }
         utterance.rate = AVSpeechUtteranceDefaultSpeechRate * 0.9
         synthesizer.speak(utterance)
+    }
+
+    func stop() {
+        synthesizer.stopSpeaking(at: .immediate)
     }
 
     /// Detected tags look like "en" / "zh-Hans" while installed voices are

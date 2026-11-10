@@ -15,6 +15,11 @@ import Foundation
 /// No API key or token required. Stability tradeoff is the same as Google /
 /// DeepL — unofficial and potentially rate-limited; errors surface as a
 /// normal provider failure.
+///
+/// Risk: unofficial endpoint, no SLA. This flow has already been replaced
+/// once (the JWT auth endpoint died in 2026-07), and Edge can change the
+/// successor endpoint or rate-limit anonymous traffic again. Failures surface
+/// as normal provider errors so the user can disable the row.
 struct MicrosoftProvider: TranslationProvider {
     let id: TranslationProviderID = .microsoft
     let displayName: String = "Microsoft"

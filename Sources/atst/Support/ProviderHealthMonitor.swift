@@ -7,6 +7,11 @@ import Foundation
 /// a short cache so navigating between settings pages doesn't spam the
 /// services. AI is deliberately manual: the AI page has a Test button,
 /// because a probe consumes tokens and depends on the user's draft fields.
+///
+/// Limitation: a green dot only means the host answered a tiny "ping"
+/// request. It does not guarantee that every translation will succeed —
+/// rate limits, payload size, auth/profile changes and endpoint changes can
+/// still fail later. The runtime rows are the source of truth.
 @MainActor
 final class ProviderHealthMonitor: ObservableObject {
     static let shared = ProviderHealthMonitor()

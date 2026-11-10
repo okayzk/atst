@@ -50,6 +50,19 @@ struct AppConfiguration: Codable, Equatable {
     /// service, all available services are used so a translation never
     /// silently produces zero rows.
     var defaultProviderIDs: [String]
+    /// Show a dictionary card for eligible single words / fixed phrases.
+    /// Youdao's keyless web dictionary is the primary source; the macOS
+    /// system dictionary is the offline fallback. On by default so the
+    /// feature works without setup — the settings page documents the
+    /// network/privacy trade-off.
+    var dictionaryEnabled: Bool
+    /// When on, a successful dictionary lookup replaces the normal API/AI
+    /// rows for eligible words/phrases: translation providers are not called.
+    /// If the dictionary misses, translation runs as usual. On by default.
+    var dictionarySkipsTranslation: Bool
+    /// Maximum number of whitespace-separated words that still count as a
+    /// dictionary lookup (1...4). Longer input is translated normally only.
+    var dictionaryMaxWords: Int
 
     // MARK: - AI provider config
     var baseURL: String
@@ -153,7 +166,10 @@ struct AppConfiguration: Codable, Equatable {
         screenshotUseVisionOCR: true,
         ocrLanguages: defaultOCRLanguages,
         pinnedNoteFollowsAcrossSpaces: false,
-        launchAtLogin: false
+        launchAtLogin: false,
+        dictionaryEnabled: true,
+        dictionarySkipsTranslation: true,
+        dictionaryMaxWords: 4
     )
 
     static let storageKey = "atst.configuration.v1"
@@ -186,7 +202,10 @@ struct AppConfiguration: Codable, Equatable {
         ocrLanguages: [String] = AppConfiguration.defaultOCRLanguages,
         pinnedNoteFollowsAcrossSpaces: Bool = false,
         launchAtLogin: Bool = false,
-        defaultProviderIDs: [String] = AppConfiguration.defaultProviderIDs
+        defaultProviderIDs: [String] = AppConfiguration.defaultProviderIDs,
+        dictionaryEnabled: Bool = true,
+        dictionarySkipsTranslation: Bool = true,
+        dictionaryMaxWords: Int = 4
     ) {
         self.aiEnabled = aiEnabled
         self.apiEnabled = apiEnabled
@@ -216,6 +235,9 @@ struct AppConfiguration: Codable, Equatable {
         self.ocrLanguages = ocrLanguages
         self.pinnedNoteFollowsAcrossSpaces = pinnedNoteFollowsAcrossSpaces
         self.launchAtLogin = launchAtLogin
+        self.dictionaryEnabled = dictionaryEnabled
+        self.dictionarySkipsTranslation = dictionarySkipsTranslation
+        self.dictionaryMaxWords = min(4, max(1, dictionaryMaxWords))
     }
 
     init(from decoder: Decoder) throws {
@@ -238,6 +260,12 @@ struct AppConfiguration: Codable, Equatable {
             ?? defaults.defaultProviderIDs
         apiFallbackEnabled = try container.decodeIfPresent(Bool.self, forKey: .apiFallbackEnabled)
             ?? defaults.apiFallbackEnabled
+        dictionaryEnabled = try container.decodeIfPresent(Bool.self, forKey: .dictionaryEnabled)
+            ?? defaults.dictionaryEnabled
+        dictionarySkipsTranslation = try container.decodeIfPresent(Bool.self, forKey: .dictionarySkipsTranslation)
+            ?? defaults.dictionarySkipsTranslation
+        dictionaryMaxWords = min(4, max(1, try container.decodeIfPresent(Int.self, forKey: .dictionaryMaxWords)
+            ?? defaults.dictionaryMaxWords))
 
         baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL) ?? defaults.baseURL
         apiKey = try container.decodeIfPresent(String.self, forKey: .apiKey) ?? defaults.apiKey

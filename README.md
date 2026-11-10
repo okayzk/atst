@@ -28,6 +28,7 @@ Hit a hotkey, get a translation. Works **out of the box** with built-in Google +
 - 🖼️ **Screenshot translation** — press `⌥S`, drag a region, get the translation. On-device Vision OCR by default (fast + private + free); falls back to AI vision if you've configured one
 - 🔀 **Multi-source side-by-side** — Google, Microsoft and DeepL results stack above your AI result, each with its own switch and collapse controls
 - 🧠 **AI dictionary mode** — for single words, AI providers can return multiple meanings, IPA phonetics, and a short usage explanation
+- 📖 **Dictionary lookup** — a dedicated card for single words and short fixed phrases, with UK/US IPA and pronunciation playback, grouped senses, bilingual examples and related phrases; Youdao is the primary source, macOS's built-in dictionary is the offline fallback
 - 📌 **Pin as note** — detach a translation into a floating sticky note that keeps the per-result controls and can be unpinned back into the tooltip
 - 💾 **Local cache** — repeat lookups hit a JSON cache, scoped per provider; configurable TTL and size cap
 - 🫧 **Native Liquid Glass** — translation tooltips and pinned notes use Liquid Glass on macOS 26+ when available, with an automatic fallback on older systems
@@ -113,6 +114,10 @@ Every result header also has a **switch button** (choose another enabled service
 
 If a provider fails three times in a row (blocked network, dead endpoint) its row collapses to a single line with a **Disable** button, so it stops shouting on every translation.
 
+### Dictionary card
+
+For a single English word or a short fixed phrase (up to 4 words), a dictionary card appears above the API rows. It shows UK/US IPA with a play button, senses grouped by part of speech, bilingual examples, common phrases and related words. Youdao's keyless web dictionary is the primary source; if it fails, atst falls back to macOS's built-in 牛津英汉汉英词典 (single words only). By default, a dictionary hit replaces the API/AI rows for that lookup; turn off **Skip translation when a definition exists** in Dictionary settings to show them together. Tap the speaker next to the UK/US IPA to play the pronunciation — Youdao's audio when available, otherwise a system `en-GB` / `en-US` voice.
+
 ### PopClip extension
 
 The repo ships a [PopClip](https://www.popclip.app/) extension in [`PopClip-plugin/`](PopClip-plugin/): select text, click **atst** in the PopClip bar, and the translation tooltip opens at the pointer.
@@ -131,14 +136,17 @@ If the text you select is already in your target language, atst translates it in
 
 Click the **`atst`** label in your menu bar to open the settings panel.
 
-The General page holds the target and secondary languages, launch-at-login, hotkeys, screenshot OCR and cache options, plus two translator toggles:
+The General page holds the target and secondary languages, launch-at-login, hotkeys, screenshot OCR and cache options, plus three translator toggles:
 
 - ☑️ **API Translation** (on by default) — Google + Microsoft + DeepL. Zero config.
+- ☐ **AI Translation** (off by default) — OpenAI-compatible endpoint. Configure base URL + key + model in the AI subpage.
+- ☑️ **Dictionary** (on by default) — dictionary card for single words and short fixed phrases. Youdao is the primary source; the macOS system dictionary is the offline fallback.
 
 Each provider name in the API subpage has a reachability dot, checked automatically when the page opens. In the AI subpage, the **Test** button below Timeout sends a tiny request with a dot next to its label.
 
 The API subpage also has an optional **Fallback** toggle: when a provider fails or is unreachable, the remaining enabled API providers are added to the same translation automatically, and the failed row stays visible with its error.
-- ☐ **AI Translation** (off by default) — OpenAI-compatible endpoint. Configure base URL + key + model in the AI subpage.
+
+The **Dictionary** subpage shows the source status, a Test button for the macOS dictionary, a **Manually Download** guide (opens Dictionary.app and lists the steps to install 牛津英汉汉英词典), the 1–4 word lookup limit and a **Skip translation when a definition exists** switch (on by default).
 
 Below them, **Default translation services** picks which of the enabled services run on every new translation. Select one or several; anything left unchecked stays one click away in each result's switch menu.
 
@@ -199,9 +207,9 @@ Add or remove recognition languages from the chip row below. Default: Simplified
 ## Privacy
 
 - atst is a **local app**. No telemetry, no analytics, no crash reporters.
-- Translation providers (Google, Microsoft, DeepL, your AI endpoint) receive only the text you trigger a translation for. Language detection for the tooltip header and reverse translation runs on-device.
-- Network activity beyond translations: one request to `api.github.com` per launch (at most every 4 h) to check for a newer release, and a small connection-warming request to each enabled provider when you press a hotkey's modifier key.
-- Cache lives at `~/Library/Caches/dev.local.atst/translations.json`. Settings live at `~/Library/Preferences/dev.local.atst.plist`. Delete either at any time.
+- Translation providers (Google, Microsoft, DeepL, your AI endpoint) and the optional Youdao dictionary receive only the text you trigger a lookup for. The macOS system dictionary lookup stays on-device. Language detection for the tooltip header and reverse translation runs on-device.
+- Network activity beyond translations: one request to `api.github.com` per launch (at most every 4 h) to check for a newer release, a small connection-warming request to each enabled provider when you press a hotkey's modifier key, a Youdao dictionary request when a word/phrase lookup runs, and a Youdao audio request when you tap a pronunciation button.
+- Cache lives at `~/Library/Caches/dev.local.atst/translations.json` and `dictionary.json`. Settings live at `~/Library/Preferences/dev.local.atst.plist`. Delete any of them at any time.
 - A diagnostic log is written to `/tmp/atst.log`; it includes the first characters of translated text. Delete it whenever you like.
 
 ---
@@ -223,6 +231,8 @@ Things on the radar (open an issue if you'd like to vote one up):
 - [ ] Translation history with full-text search
 - [ ] Universal (Intel + Apple Silicon) release binary
 - [ ] Apple Notarization + proper code signing (no more right-click → Open)
+
+Deferred dictionary plans (offline dictionary packs, traditional Chinese, more languages) are recorded in [ROADMAP.md](./ROADMAP.md).
 
 ---
 
