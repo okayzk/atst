@@ -40,10 +40,6 @@ struct SettingsAIPage: View {
             Divider().padding(.horizontal, 10)
             SettingsToggleRow(
                 title: L.pick("Show AI result first", "AI 结果置顶"),
-                subtitle: L.pick(
-                    "Put the AI translation above the Google / Microsoft / DeepL rows",
-                    "把 AI 译文排在 Google / Microsoft / DeepL 之上"
-                ),
                 isOn: $draft.aiResultFirst,
                 onChange: save
             )
