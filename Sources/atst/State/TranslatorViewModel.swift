@@ -156,7 +156,20 @@ final class TranslatorViewModel: ObservableObject {
     ) async {
         cancelActiveTextTasks()
 
-        let languages = resolveLanguages(for: selection.text)
+        // Selected text copied from PDFs / web pages often carries the
+        // source app's visual line wraps (one newline per rendered line).
+        // Fold them back into sentences before language detection, cache
+        // lookup and provider fan-out, so a wrapped sentence is translated
+        // as one unit instead of several fragments. Manual input keeps the
+        // user's own line breaks.
+        let source = sourceEditable
+            ? selection.text
+            : TextReflow.joiningSoftWraps(selection.text)
+        if source != selection.text {
+            AppLogger.log("reflow joined soft wraps: \(selection.text.count) -> \(source.count) chars")
+        }
+
+        let languages = resolveLanguages(for: source)
         let providers = buildEnabledProviders(targetLanguage: languages.target)
 
         // Dictionary-first mode: for eligible words/phrases, wait for the
@@ -165,14 +178,14 @@ final class TranslatorViewModel: ObservableObject {
         let dictionaryFirst = configuration.dictionaryEnabled
             && configuration.dictionarySkipsTranslation
             && DictionaryEligibility.isEligible(
-                text: selection.text,
+                text: source,
                 targetLanguage: configuration.targetLanguage,
                 secondaryTargetLanguage: configuration.secondaryTargetLanguage,
                 maxWords: configuration.dictionaryMaxWords
             )
         if dictionaryFirst {
             state = .text(TextSegments(
-                source: selection.text,
+                source: source,
                 api: [],
                 ai: nil,
                 bothDisabled: false,
@@ -183,7 +196,7 @@ final class TranslatorViewModel: ObservableObject {
                 dictionaryFirst: true
             ))
             startDictionaryLookupIfNeeded(
-                source: selection.text,
+                source: source,
                 bypassCache: bypassCache,
                 markLoading: false,
                 onMiss: { [weak self] in
@@ -197,7 +210,7 @@ final class TranslatorViewModel: ObservableObject {
             // Both top-level switches are off — short-circuit to the
             // empty-state tooltip with the "Open settings" CTA.
             state = .text(TextSegments(
-                source: selection.text,
+                source: source,
                 api: [],
                 ai: nil,
                 bothDisabled: true,
@@ -211,7 +224,7 @@ final class TranslatorViewModel: ObservableObject {
             // explanatory empty state so the user doesn't get a silent
             // tooltip with no segments.
             state = .text(TextSegments(
-                source: selection.text,
+                source: source,
                 api: [],
                 ai: nil,
                 bothDisabled: true,
@@ -221,13 +234,13 @@ final class TranslatorViewModel: ObservableObject {
         }
 
         startProviderTranslation(
-            source: selection.text,
+            source: source,
             sourceEditable: sourceEditable,
             languages: languages,
             providers: providers,
             bypassCache: bypassCache
         )
-        startDictionaryLookupIfNeeded(source: selection.text, bypassCache: bypassCache)
+        startDictionaryLookupIfNeeded(source: source, bypassCache: bypassCache)
     }
 
     /// Seed and start the configured translation providers. Extracted so the

@@ -133,32 +133,10 @@ enum VisionOCRService {
             if gap > lineHeight * 0.8 || indentShift > 0.05 || startsBlock {
                 result += "\n\n" + line.text
             } else {
-                result += joiner(between: prev.text, and: line.text) + line.text
+                result += TextReflow.joiner(between: prev.text, and: line.text) + line.text
             }
         }
         return result
-    }
-
-    /// CJK text has no inter-word spaces, so wrapped CJK lines join
-    /// directly; everything else gets a single space.
-    private static func joiner(between prev: String, and next: String) -> String {
-        guard let last = prev.unicodeScalars.last, let first = next.unicodeScalars.first else { return " " }
-        return isCJK(last) || isCJK(first) ? "" : " "
-    }
-
-    private static func isCJK(_ scalar: Unicode.Scalar) -> Bool {
-        switch scalar.value {
-        case 0x3040...0x30FF,   // Hiragana + Katakana
-             0x3400...0x4DBF,   // CJK Extension A
-             0x4E00...0x9FFF,   // CJK Unified Ideographs
-             0xAC00...0xD7AF,   // Hangul syllables
-             0xF900...0xFAFF,   // CJK Compatibility Ideographs
-             0x3000...0x303F,   // CJK punctuation
-             0xFF00...0xFFEF:   // Fullwidth forms
-            return true
-        default:
-            return false
-        }
     }
 
     /// 16×16 transparent PNG — small enough that Vision returns instantly
