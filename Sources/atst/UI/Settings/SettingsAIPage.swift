@@ -9,6 +9,8 @@ struct SettingsAIPage: View {
     var debouncedSave: () -> Void
     var openPromptsPage: () -> Void
 
+    @State private var aiHealth: ProviderHealth = .unknown
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 14) {
@@ -65,6 +67,8 @@ struct SettingsAIPage: View {
                 onChange: debouncedSave
             )
             timeoutRow
+            Divider().padding(.horizontal, 10)
+            testRow
         }
     }
 
@@ -93,6 +97,47 @@ struct SettingsAIPage: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
+    }
+
+    /// Manual AI probe. AI is not auto-checked because a probe spends tokens
+    /// and depends on the fields currently being edited.
+    private var testRow: some View {
+        HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(L.pick("Connection", "连接测试"))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.primary)
+                Text(L.pick(
+                    "Send a tiny request to the configured model.",
+                    "向配置的模型发送一条小请求。"
+                ))
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+            }
+            Spacer(minLength: 8)
+            Button {
+                testAI()
+            } label: {
+                HStack(spacing: 5) {
+                    Text(L.pick("Test", "测试"))
+                    ProviderHealthIndicator(health: aiHealth, size: 6)
+                }
+                .font(.system(size: 11, weight: .medium))
+            }
+            .controlSize(.small)
+            .disabled(aiHealth == .checking)
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 7)
+    }
+
+    private func testAI() {
+        let configuration = draft
+        aiHealth = .checking
+        Task { @MainActor in
+            let health = await ProviderHealthMonitor.shared.checkAI(configuration: configuration)
+            aiHealth = health
+        }
     }
 
     private var promptsSection: some View {

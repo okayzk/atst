@@ -37,6 +37,7 @@ struct SettingsGeneralPage: View {
                 permissionsSection
                 generalSection
                 translatorNavSection
+                defaultServicesSection
                 hotkeysSection
                 screenshotSection
                 cacheSection
@@ -211,6 +212,7 @@ struct SettingsGeneralPage: View {
             switch entry.kind {
             case .google: return "Google"
             case .microsoft: return "Microsoft"
+            case .deepl: return "DeepL"
             case .ai, .none: return nil
             }
         }
@@ -218,6 +220,119 @@ struct SettingsGeneralPage: View {
             return L.pick("No translators enabled", "未启用任何翻译源")
         }
         return enabled.joined(separator: " · ")
+    }
+
+    // MARK: - Default services section
+
+    /// Which of the enabled services run on a new translation. The rest
+    /// stay available for the per-result switch menu in the tooltip.
+    private var defaultServicesSection: some View {
+        SettingsSection(title: L.pick("Default translation services", "默认翻译服务")) {
+            let available = draft.availableProviderKinds
+            if available.isEmpty {
+                Text(L.pick(
+                    "Enable API or AI translation first.",
+                    "请先启用 API 或 AI 翻译。"
+                ))
+                .font(.system(size: 10))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+            } else {
+                ForEach(Array(available.enumerated()), id: \.element) { index, kind in
+                    defaultServiceRow(kind: kind, available: available)
+                    if index < available.count - 1 {
+                        Divider().padding(.horizontal, 10)
+                    }
+                }
+                if selectedDefaultServiceCount(available: available) == 0 {
+                    Text(L.pick(
+                        "Nothing selected — every enabled service will be used.",
+                        "未选择默认服务时将调用所有已启用的服务。"
+                    ))
+                    .font(.system(size: 10))
+                    .foregroundStyle(.orange)
+                    .padding(.horizontal, 10)
+                    .padding(.top, 2)
+                }
+                Text(L.pick(
+                    "Called on every new translation. Use the switch button on a result to swap one temporarily.",
+                    "每次新翻译默认调用这些服务；单条结果可在标题处临时切换。"
+                ))
+                .font(.system(size: 10))
+                .foregroundStyle(.tertiary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 10)
+                .padding(.top, 2)
+                .padding(.bottom, 8)
+            }
+        }
+    }
+
+    private func selectedDefaultServiceCount(available: [TranslationProviderID]) -> Int {
+        available.reduce(0) { count, kind in
+            count + (draft.defaultProviderIDs.contains(kind.rawValue) ? 1 : 0)
+        }
+    }
+
+    private func defaultServiceRow(
+        kind: TranslationProviderID,
+        available: [TranslationProviderID]
+    ) -> some View {
+        let selected = draft.defaultProviderIDs.contains(kind.rawValue)
+        let selectedCount = selectedDefaultServiceCount(available: available)
+        let isLastSelected = selected && selectedCount == 1
+
+        return HStack(spacing: 10) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(kind.displayName)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(.primary)
+                Text(defaultServiceSubtitle(for: kind))
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer(minLength: 4)
+            Toggle("", isOn: Binding(
+                get: { draft.defaultProviderIDs.contains(kind.rawValue) },
+                set: { newValue in
+                    guard !(isLastSelected && !newValue) else { return }
+                    if newValue {
+                        if !draft.defaultProviderIDs.contains(kind.rawValue) {
+                            draft.defaultProviderIDs.append(kind.rawValue)
+                        }
+                    } else {
+                        draft.defaultProviderIDs.removeAll { $0 == kind.rawValue }
+                    }
+                    save()
+                }
+            ))
+            .toggleStyle(.switch)
+            .controlSize(.mini)
+            .labelsHidden()
+            .disabled(isLastSelected)
+            .help(isLastSelected
+                  ? L.pick("At least one service stays selected", "至少保留一个默认服务")
+                  : "")
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+    }
+
+    private func defaultServiceSubtitle(for kind: TranslationProviderID) -> String {
+        switch kind {
+        case .google:
+            return L.pick("Unofficial public endpoint", "非官方公开接口")
+        case .microsoft:
+            return L.pick("Unofficial Edge endpoint", "非官方 Edge 接口")
+        case .deepl:
+            return L.pick("Unofficial iOS endpoint · 1500-char cap", "非官方 iOS 接口 · 单次 1500 字符")
+        case .ai:
+            let model = draft.textModel.trimmingCharacters(in: .whitespacesAndNewlines)
+            return model.isEmpty ? L.pick("Model not configured", "尚未配置模型") : model
+        }
     }
 
     private func translatorNavRow(

@@ -7,14 +7,29 @@ final class TranslatorViewModel: ObservableObject {
     @Published private(set) var state: TranslationState = .idle
     @Published private(set) var configuration: AppConfiguration
     @Published var pinned: Bool = false
+    /// Draft text for the manual-entry editor. Lives here (not in the
+    /// SwiftUI view) so the input box can be prefilled when the user
+    /// re-edits the source of a finished manual translation.
+    @Published var inputDraft: String = ""
+    /// The manual translation the user is currently re-editing, shown
+    /// below the editor while they type. Provider tasks keep updating this
+    /// snapshot, so a translation that is still streaming doesn't freeze
+    /// when the editor opens.
+    @Published private(set) var inputPrevious: TextSegments?
+    /// Bumped whenever a new translation starts. The tooltip resets its
+    /// per-result collapse state on a change; a provider switch does not
+    /// bump it because that's still the same translation.
+    @Published private(set) var translationGeneration: Int = 0
 
     private let settingsStore: SettingsStore
     private let selectedTextProvider: SelectedTextProvider
     private var cancellables = Set<AnyCancellable>()
     /// Tasks driving the currently-visible text translation — one per
-    /// active provider segment. Replaced wholesale whenever a new
-    /// selection arrives so older results can't write into the newer state.
-    private var activeTextSegmentTasks: [Task<Void, Never>] = []
+    /// active provider segment, keyed by provider so a single result can
+    /// be switched without disturbing the others. Replaced wholesale
+    /// whenever a new selection arrives so older results can't write into
+    /// the newer state.
+    private var activeTextSegmentTasks: [TranslationProviderID: Task<Void, Never>] = [:]
     /// Per-provider run of failures since the last success, in memory only.
     /// Drives the collapsed "failed N times · Disable" row so a blocked
     /// endpoint stops shouting a full error on every translation.
@@ -40,11 +55,20 @@ final class TranslatorViewModel: ObservableObject {
     /// render its spinners immediately, before any provider has replied.
     /// Caller invokes this synchronously from the hotkey handler so we beat
     /// the network on screen.
-    func beginTextTranslation(source: String) {
+    func beginTextTranslation(source: String, sourceEditable: Bool = false) {
+        translationGeneration += 1
+        inputDraft = ""
+        inputPrevious = nil
         let languages = resolveLanguages(for: source)
         let segments = makePlaceholderSegments(targetLanguage: languages.target)
         if segments.api.isEmpty && segments.ai == nil {
-            state = .text(TextSegments(source: source, api: [], ai: nil, bothDisabled: true))
+            state = .text(TextSegments(
+                source: source,
+                api: [],
+                ai: nil,
+                bothDisabled: true,
+                sourceEditable: sourceEditable
+            ))
         } else {
             state = .text(TextSegments(
                 source: source,
@@ -52,7 +76,8 @@ final class TranslatorViewModel: ObservableObject {
                 ai: segments.ai,
                 bothDisabled: false,
                 sourceLanguage: languages.source,
-                targetLanguage: languages.target
+                targetLanguage: languages.target,
+                sourceEditable: sourceEditable
             ))
         }
     }
@@ -99,7 +124,11 @@ final class TranslatorViewModel: ObservableObject {
     /// Kick off the configured text providers in parallel. Cache lookups
     /// happen per-segment up front; on cache miss we spawn a Task per
     /// provider and let each one update its own segment as it completes.
-    func translateSelection(_ selection: SelectedText, bypassCache: Bool = false) async {
+    func translateSelection(
+        _ selection: SelectedText,
+        bypassCache: Bool = false,
+        sourceEditable: Bool = false
+    ) async {
         cancelActiveTextTasks()
 
         let languages = resolveLanguages(for: selection.text)
@@ -111,7 +140,8 @@ final class TranslatorViewModel: ObservableObject {
                 source: selection.text,
                 api: [],
                 ai: nil,
-                bothDisabled: true
+                bothDisabled: true,
+                sourceEditable: sourceEditable
             ))
             return
         }
@@ -124,7 +154,8 @@ final class TranslatorViewModel: ObservableObject {
                 source: selection.text,
                 api: [],
                 ai: nil,
-                bothDisabled: true
+                bothDisabled: true,
+                sourceEditable: sourceEditable
             ))
             return
         }
@@ -171,7 +202,8 @@ final class TranslatorViewModel: ObservableObject {
             ai: aiSegment,
             bothDisabled: false,
             sourceLanguage: languages.source,
-            targetLanguage: languages.target
+            targetLanguage: languages.target,
+            sourceEditable: sourceEditable
         ))
 
         // For each provider that wasn't a cache hit, kick off a Task. Each
@@ -186,7 +218,7 @@ final class TranslatorViewModel: ObservableObject {
                 guard let self else { return }
                 await self.run(provider: provider, source: selection.text, targetLanguage: languages.target)
             }
-            activeTextSegmentTasks.append(task)
+            activeTextSegmentTasks[provider.id] = task
         }
     }
 
@@ -222,9 +254,34 @@ final class TranslatorViewModel: ObservableObject {
         state = .failure(DisplayError(error))
     }
 
-    func showInput() {
-        cancelActiveTextTasks()
+    /// Show the manual-entry editor. `prefill` and `previous` are used when
+    /// the user clicks the source block of a finished manual translation:
+    /// the editor opens with the original text and the previous result
+    /// stays visible underneath. A fresh ⌥D input passes neither.
+    func showInput(prefill: String = "", previous: TextSegments? = nil) {
+        if previous == nil {
+            cancelActiveTextTasks()
+        }
+        inputDraft = prefill
+        inputPrevious = previous
         state = .input
+    }
+
+    /// Translate text this session already holds. The live tooltip goes
+    /// through `AppDelegate`, which also owns the panel; pinned notes call
+    /// this directly so their header refresh and manual editor use the same
+    /// provider/cache pipeline.
+    func translateText(_ text: String, bypassCache: Bool, sourceEditable: Bool? = nil) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let editable = sourceEditable ?? state.isSourceEditable
+        TranslationStats.shared.recordTranslation()
+        beginTextTranslation(source: trimmed, sourceEditable: editable)
+        let selection = SelectedText(text: trimmed, anchorRect: nil)
+        Task { [weak self] in
+            guard let self else { return }
+            await self.translateSelection(selection, bypassCache: bypassCache, sourceEditable: editable)
+        }
     }
 
     /// "Disable" on a collapsed failure row. Persists through the settings
@@ -241,33 +298,196 @@ final class TranslatorViewModel: ObservableObject {
             return
         }
         consecutiveFailures[id] = 0
+        activeTextSegmentTasks.removeValue(forKey: id)?.cancel()
         if case .text(var segments) = state {
             segments.api.removeAll { $0.id == id }
             state = .text(segments)
         }
     }
 
-    // MARK: - Provider plumbing
+    /// Swap one visible result to another available provider. The old
+    /// provider's in-flight request is cancelled; the replacement is seeded
+    /// from cache when possible, otherwise its request starts immediately.
+    /// This only changes the current translation — the next translation
+    /// goes back to the configured default services.
+    func switchProvider(from oldID: TranslationProviderID, to newID: TranslationProviderID) {
+        guard oldID != newID,
+              case .text(var segments) = state,
+              !segments.allSegments.contains(where: { $0.id == newID }) else {
+            return
+        }
 
-    /// Build the list of providers we should fan out to, honoring the AI/API
-    /// top-level toggles. AI is always included when `aiEnabled` is on —
-    /// even without a configured model — so the AI segment can surface a
-    /// "model not configured" error inline instead of silently disappearing.
-    /// API providers come from the user's enabled list in the order they're
-    /// defined in settings.
-    private func buildEnabledProviders(targetLanguage: String) -> [TranslationProvider] {
-        var providers: [TranslationProvider] = []
-        if configuration.apiEnabled {
-            for kind in configuration.enabledAPIProviderKinds {
-                if let provider = makeProvider(for: kind, targetLanguage: targetLanguage) {
-                    providers.append(provider)
-                }
+        let target = segments.targetLanguage.isEmpty
+            ? resolveLanguages(for: segments.source).target
+            : segments.targetLanguage
+        guard let provider = makeProvider(for: newID, targetLanguage: target) else { return }
+
+        activeTextSegmentTasks.removeValue(forKey: oldID)?.cancel()
+        activeTextSegmentTasks.removeValue(forKey: newID)?.cancel()
+
+        let cached = lookupCache(for: provider, source: segments.source, targetLanguage: target)
+        let initialState: SegmentState
+        if let entry = cached {
+            initialState = .success(
+                output: entry.output,
+                latencyMs: nil,
+                fromCache: true,
+                cacheInfo: TranslationCache.CacheInfo(cachedAt: entry.createdAt, source: entry.source)
+            )
+        } else {
+            initialState = .loading
+        }
+        let replacement = ProviderSegment(
+            id: newID,
+            displayName: provider.displayName,
+            modelHint: provider.modelHint,
+            state: initialState
+        )
+
+        if newID == .ai {
+            segments.api.removeAll { $0.id == oldID }
+            segments.ai = replacement
+        } else if oldID == .ai {
+            segments.ai = nil
+            segments.api.append(replacement)
+        } else if let index = segments.api.firstIndex(where: { $0.id == oldID }) {
+            segments.api[index] = replacement
+        } else {
+            return
+        }
+        state = .text(segments)
+
+        guard cached == nil else { return }
+        TranslationStats.shared.recordCacheMiss()
+        let task: Task<Void, Never> = Task { [weak self] in
+            guard let self else { return }
+            await self.run(provider: provider, source: segments.source, targetLanguage: target)
+        }
+        activeTextSegmentTasks[newID] = task
+    }
+
+    /// "Call all other enabled services" from a result's switch menu.
+    /// Keeps every row already on screen and adds each enabled provider
+    /// that isn't displayed yet, using cache when possible. This is still
+    /// the same translation, so it doesn't bump `translationGeneration`
+    /// (existing collapsed rows stay collapsed).
+    func addAllAvailableProviders() {
+        guard case .text(var segments) = state else { return }
+        let used = Set(segments.allSegments.map(\.id))
+        let additions = configuration.availableProviderKinds.filter { !used.contains($0) }
+        guard !additions.isEmpty else { return }
+
+        let source = segments.source
+        let target = segments.targetLanguage.isEmpty
+            ? resolveLanguages(for: source).target
+            : segments.targetLanguage
+
+        var pending: [(provider: TranslationProvider, segment: ProviderSegment, cacheHit: Bool)] = []
+        for kind in additions {
+            guard let provider = makeProvider(for: kind, targetLanguage: target) else { continue }
+            let cached = lookupCache(for: provider, source: source, targetLanguage: target)
+            let initialState: SegmentState
+            if let entry = cached {
+                initialState = .success(
+                    output: entry.output,
+                    latencyMs: nil,
+                    fromCache: true,
+                    cacheInfo: TranslationCache.CacheInfo(cachedAt: entry.createdAt, source: entry.source)
+                )
+            } else {
+                initialState = .loading
+            }
+            let segment = ProviderSegment(
+                id: kind,
+                displayName: provider.displayName,
+                modelHint: provider.modelHint,
+                state: initialState
+            )
+            pending.append((provider: provider, segment: segment, cacheHit: cached != nil))
+        }
+        guard !pending.isEmpty else { return }
+
+        for item in pending {
+            if item.segment.id == .ai {
+                segments.ai = item.segment
+            } else {
+                segments.api.append(item.segment)
             }
         }
-        if configuration.aiEnabled {
-            providers.append(makeAIProvider(targetLanguage: targetLanguage))
+        state = .text(segments)
+
+        var sawCacheMiss = false
+        for item in pending where !item.cacheHit {
+            sawCacheMiss = true
+            let task: Task<Void, Never> = Task { [weak self] in
+                guard let self else { return }
+                await self.run(provider: item.provider, source: source, targetLanguage: target)
+            }
+            activeTextSegmentTasks[item.segment.id] = task
         }
-        return providers
+        if sawCacheMiss {
+            TranslationStats.shared.recordCacheMiss()
+        }
+    }
+
+    /// Create an independent session for a pinned note. The note receives
+    /// the current state and its own provider tasks, so switching,
+    /// collapsing, and re-editing behave exactly like the live tooltip.
+    /// Returns nil when there is nothing meaningful to pin.
+    func makeDetachedSession() -> TranslatorViewModel? {
+        switch state {
+        case .text(let segments):
+            guard segments.hasAnyContent else { return nil }
+        case .screenshotSuccess(let output, _, _),
+             .screenshotStreaming(_, let output, _, _):
+            guard !output.items.isEmpty else { return nil }
+        case .idle, .input, .screenshotLoading, .failure:
+            return nil
+        }
+
+        let session = TranslatorViewModel(settingsStore: settingsStore)
+        session.state = state
+        session.translationGeneration = translationGeneration
+        session.inputDraft = inputDraft
+        session.inputPrevious = inputPrevious
+        cancelActiveTextTasks()
+        if case .text = state {
+            session.resumeUnfinishedSegments()
+        }
+        return session
+    }
+
+    /// Take over a pinned note's session when it is unpinned back into the
+    /// live tooltip. Unfinished providers are restarted on this session.
+    func adoptState(from other: TranslatorViewModel) {
+        cancelActiveTextTasks()
+        other.cancelActiveTranslations()
+        state = other.state
+        inputDraft = other.inputDraft
+        inputPrevious = other.inputPrevious
+        translationGeneration = other.translationGeneration
+        if case .text = state {
+            resumeUnfinishedSegments()
+        }
+    }
+
+    /// Public hook for a note that is closing: stop its network work.
+    func cancelActiveTranslations() {
+        cancelActiveTextTasks()
+    }
+
+    // MARK: - Provider plumbing
+
+    /// Build the list of providers we should fan out to, honoring the
+    /// user's default-service selection on top of the AI/API top-level
+    /// toggles. AI is included without a configured model so its segment
+    /// can surface a "model not configured" error inline instead of
+    /// silently disappearing. API providers come from the user's enabled
+    /// list in the order they're defined in settings.
+    private func buildEnabledProviders(targetLanguage: String) -> [TranslationProvider] {
+        configuration.defaultProviderKinds.compactMap { kind in
+            makeProvider(for: kind, targetLanguage: targetLanguage)
+        }
     }
 
     /// The AI provider reads its target from the configuration, so hand it
@@ -294,6 +514,8 @@ final class TranslatorViewModel: ObservableObject {
             return GoogleProvider(targetLanguage: targetLanguage)
         case .microsoft:
             return MicrosoftProvider(targetLanguage: targetLanguage)
+        case .deepl:
+            return DeepLProvider(targetLanguage: targetLanguage)
         }
     }
 
@@ -302,33 +524,64 @@ final class TranslatorViewModel: ObservableObject {
     /// hotkey-to-first-frame path doesn't flash an empty tooltip.
     private func makePlaceholderSegments(targetLanguage: String) -> (api: [ProviderSegment], ai: ProviderSegment?) {
         var apiSegments: [ProviderSegment] = []
-        if configuration.apiEnabled {
-            for kind in configuration.enabledAPIProviderKinds {
-                let provider = makeProvider(for: kind, targetLanguage: targetLanguage)
-                apiSegments.append(ProviderSegment(
-                    id: kind,
-                    displayName: provider?.displayName ?? kind.rawValue,
-                    modelHint: provider?.modelHint,
-                    state: .loading
-                ))
-            }
-        }
         var aiSegment: ProviderSegment? = nil
-        if configuration.aiEnabled {
-            let provider = makeAIProvider(targetLanguage: targetLanguage)
-            aiSegment = ProviderSegment(
-                id: .ai,
-                displayName: provider.displayName,
-                modelHint: provider.modelHint,
+        for kind in configuration.defaultProviderKinds {
+            let provider = makeProvider(for: kind, targetLanguage: targetLanguage)
+            let segment = ProviderSegment(
+                id: kind,
+                displayName: provider?.displayName ?? kind.displayName,
+                modelHint: provider?.modelHint,
                 state: .loading
             )
+            if kind == .ai {
+                aiSegment = segment
+            } else {
+                apiSegments.append(segment)
+            }
         }
         return (apiSegments, aiSegment)
     }
 
     private func cancelActiveTextTasks() {
-        for task in activeTextSegmentTasks { task.cancel() }
+        for task in activeTextSegmentTasks.values { task.cancel() }
         activeTextSegmentTasks.removeAll()
+    }
+
+    /// Restart providers whose segment was still loading or streaming when
+    /// a session was detached/adopted. Completed and failed segments are
+    /// kept, and a cache hit is applied without another request.
+    private func resumeUnfinishedSegments() {
+        guard case .text(let segments) = state,
+              !segments.targetLanguage.isEmpty else {
+            return
+        }
+        let source = segments.source
+        let target = segments.targetLanguage
+
+        for segment in segments.allSegments {
+            switch segment.state {
+            case .success, .failure:
+                continue
+            case .loading, .streaming:
+                guard let provider = makeProvider(for: segment.id, targetLanguage: target) else { continue }
+                if let entry = lookupCache(for: provider, source: source, targetLanguage: target) {
+                    updateSegment(id: segment.id) { current in
+                        current.state = .success(
+                            output: entry.output,
+                            latencyMs: nil,
+                            fromCache: true,
+                            cacheInfo: TranslationCache.CacheInfo(cachedAt: entry.createdAt, source: entry.source)
+                        )
+                    }
+                    continue
+                }
+                let task: Task<Void, Never> = Task { [weak self] in
+                    guard let self else { return }
+                    await self.run(provider: provider, source: source, targetLanguage: target)
+                }
+                activeTextSegmentTasks[segment.id] = task
+            }
+        }
     }
 
     /// Drive a single provider's translate() stream and patch the matching
@@ -418,16 +671,35 @@ final class TranslatorViewModel: ObservableObject {
     /// isn't a text translation or no segment matches — covers the race
     /// where a newer selection arrived between this task's await and now.
     private func updateSegment(id: TranslationProviderID, mutate: (inout ProviderSegment) -> Void) {
-        guard case .text(var segments) = state else { return }
-        if let index = segments.api.firstIndex(where: { $0.id == id }) {
-            mutate(&segments.api[index])
-            state = .text(segments)
+        if case .text(var segments) = state {
+            if let index = segments.api.firstIndex(where: { $0.id == id }) {
+                mutate(&segments.api[index])
+                state = .text(segments)
+                return
+            }
+            if var ai = segments.ai, ai.id == id {
+                mutate(&ai)
+                segments.ai = ai
+                state = .text(segments)
+            }
             return
         }
-        if var ai = segments.ai, ai.id == id {
-            mutate(&ai)
-            segments.ai = ai
-            state = .text(segments)
+
+        // While the user re-edits the source of a manual translation, the
+        // previous result lives in `inputPrevious`. Keep patching it so a
+        // provider that is still streaming finishes instead of freezing
+        // behind the editor.
+        if case .input = state, var previous = inputPrevious {
+            if let index = previous.api.firstIndex(where: { $0.id == id }) {
+                mutate(&previous.api[index])
+                inputPrevious = previous
+                return
+            }
+            if var ai = previous.ai, ai.id == id {
+                mutate(&ai)
+                previous.ai = ai
+                inputPrevious = previous
+            }
         }
     }
 
@@ -553,6 +825,11 @@ struct TextSegments: Equatable {
     /// Display string of the target the providers were asked for. Differs
     /// from the configured target when reverse translation kicked in.
     var targetLanguage: String = ""
+    /// True when the source came from the manual-entry editor. The tooltip
+    /// then shows the original above the result and lets the user click it
+    /// to edit and re-translate. Selection / PopClip / OCR sources leave
+    /// this false.
+    var sourceEditable: Bool = false
 
     /// "English → 简体中文" for the tooltip header; nil when nothing is known.
     var languagePairLabel: String? {
@@ -574,6 +851,15 @@ struct TextSegments: Equatable {
     var allSegments: [ProviderSegment] {
         if let ai = ai { return api + [ai] }
         return api
+    }
+
+    /// Copy with the editable-source affordance stripped. Used when the
+    /// previous result is shown underneath the re-edit box, where showing
+    /// a second "Original" block would duplicate the editor's content.
+    var withoutSourceEditing: TextSegments {
+        var copy = self
+        copy.sourceEditable = false
+        return copy
     }
 }
 
@@ -616,6 +902,13 @@ enum SegmentState: Equatable {
 }
 
 extension TranslationState {
+    /// True only for a finished manual translation whose source can be
+    /// reopened in the editor.
+    var isSourceEditable: Bool {
+        if case .text(let segments) = self { return segments.sourceEditable }
+        return false
+    }
+
     var sourceText: String {
         switch self {
         case .text(let segments): return segments.source

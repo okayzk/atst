@@ -1,13 +1,15 @@
 import SwiftUI
 
 /// "API translation" subpage. Lists the built-in providers (Google,
-/// Microsoft) as toggle rows, with a placeholder for the future "+
+/// Microsoft, DeepL) as toggle rows, with a placeholder for the future "+
 /// Custom provider" v2 feature. Re-ordering is per-row only for now — users
 /// can disable a provider but the visual order in the tooltip mirrors the
 /// list order here.
 struct SettingsAPIPage: View {
     @Binding var draft: AppConfiguration
     var save: () -> Void
+
+    @ObservedObject private var health = ProviderHealthMonitor.shared
 
     var body: some View {
         ScrollView {
@@ -21,6 +23,9 @@ struct SettingsAPIPage: View {
             .padding(.vertical, 12)
         }
         .frame(maxHeight: 500)
+        .onAppear {
+            health.checkAPIProviders()
+        }
     }
 
     private var statusSection: some View {
@@ -51,9 +56,14 @@ struct SettingsAPIPage: View {
     private func providerRow(index: Int, entry: APIProviderEntry) -> some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(displayName(for: entry))
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.primary)
+                HStack(spacing: 5) {
+                    Text(displayName(for: entry))
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundStyle(.primary)
+                    if let kind = entry.kind, kind != .ai {
+                        ProviderHealthIndicator(health: health.status(for: kind))
+                    }
+                }
                 Text(subtitle(for: entry))
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
@@ -125,6 +135,7 @@ struct SettingsAPIPage: View {
         switch entry.kind {
         case .google: return "Google"
         case .microsoft: return "Microsoft"
+        case .deepl: return "DeepL"
         case .ai, .none: return entry.id
         }
     }
@@ -138,8 +149,13 @@ struct SettingsAPIPage: View {
             )
         case .microsoft:
             return L.pick(
-                "Unofficial Edge endpoint · auto JWT auth",
-                "非官方 Edge 接口 · 自动鉴权"
+                "Unofficial Edge endpoint · no key",
+                "非官方 Edge 接口 · 无需 Key"
+            )
+        case .deepl:
+            return L.pick(
+                "Unofficial iOS endpoint · no key · 1500-char cap",
+                "非官方 iOS 接口 · 无需 Key · 单次 1500 字符"
             )
         case .ai, .none:
             return ""
@@ -157,8 +173,8 @@ struct SettingsAPIPage: View {
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.secondary)
                     Text(L.pick(
-                        "Bring your own DeepL / Lingva / Libretranslate (v2)",
-                        "v2 支持自填 DeepL / Lingva / Libretranslate"
+                        "Bring your own Lingva / LibreTranslate (v2)",
+                        "v2 支持自填 Lingva / LibreTranslate"
                     ))
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
@@ -182,8 +198,8 @@ struct SettingsAPIPage: View {
                     .foregroundStyle(.tertiary)
             }
             Text(L.pick(
-                "Both Google and Microsoft adapters use unofficial public endpoints. They may be rate-limited or blocked at any time. Your selection text is sent to the respective service.",
-                "Google 与 Microsoft 都使用非官方公开接口，随时可能限流或不可用。选区文本会被发送到对应服务方。"
+                "The dot next to each provider shows reachability and is checked automatically when this page opens. Google, Microsoft and DeepL adapters use unofficial public endpoints. They may be rate-limited or blocked at any time. Your selection text is sent to the respective service.",
+                "provider 名称后的圆点表示可达性，打开本页时自动检测。Google、Microsoft 与 DeepL 都使用非官方公开接口，随时可能限流或不可用。选区文本会被发送到对应服务方。"
             ))
             .font(.system(size: 10))
             .foregroundStyle(.secondary)

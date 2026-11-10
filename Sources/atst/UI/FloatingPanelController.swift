@@ -77,13 +77,13 @@ final class FloatingPanelController {
         }
     }
 
-    func show(anchor: FloatingPanelAnchor = .mouse, activate: Bool = true) {
+    func show(anchor: FloatingPanelAnchor = .mouse, activate: Bool = true, animated: Bool = true) {
         ensureSized()
 
         let topLeft = topLeftPoint(for: anchor, size: panel.frame.size)
 
-        if !panel.isVisible {
-            panel.alphaValue = 0
+        if !panel.isVisible || !animated {
+            panel.alphaValue = animated ? 0 : 1
         }
         panel.setFrameTopLeftPoint(topLeft)
         // First cap of the session — happens before the alpha-in animation
@@ -97,12 +97,14 @@ final class FloatingPanelController {
             panel.orderFrontRegardless()
         }
 
-        if panel.alphaValue < 1 {
+        if animated, panel.alphaValue < 1 {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.16
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
                 panel.animator().alphaValue = 1
             }
+        } else {
+            panel.alphaValue = 1
         }
 
         startDismissalMonitors()
@@ -139,6 +141,15 @@ final class FloatingPanelController {
         panel.makeKeyAndOrderFront(nil)
     }
 
+    /// Reopen the editor for a finished manual translation. The panel is
+    /// already on screen, so this only swaps the state and takes key status;
+    /// no repositioning, no dismissal-monitor churn.
+    func editSource(_ source: String, previous: TextSegments) {
+        viewModel.showInput(prefill: source, previous: previous)
+        panel.allowsKeyStatus = true
+        panel.makeKeyAndOrderFront(nil)
+    }
+
     /// A key window renders Liquid Glass in its clear "active" form, so the
     /// read-only tooltip must not be key. Re-ordering is the sanctioned way
     /// for a nonactivating panel to give key status back.
@@ -166,83 +177,61 @@ final class FloatingPanelController {
             }
     }
 
-    /// Snapshot the currently visible translation, spawn an independent
-    /// pinned-note panel at the same screen position, then close the active
-    /// tooltip so the next translation starts in a fresh one.
+    /// Detach the current translation into a pinned note. The note gets its
+    /// own `TranslatorViewModel` seeded from this session, so its switch,
+    /// collapse, and source-editing controls use the exact same pipeline as
+    /// the live tooltip. The live panel then closes, ready for the next
+    /// translation.
     private func detachAsNote() {
-        guard panel.isVisible else {
-            viewModel.pinned = false
-            return
-        }
-
-        guard let snapshot = makePinnedSnapshot() else {
+        guard panel.isVisible,
+              let session = viewModel.makeDetachedSession() else {
             viewModel.pinned = false
             return
         }
 
         let originTopLeft = NSPoint(x: panel.frame.minX, y: panel.frame.maxY)
         let note = PinnedNoteController(
-            snapshot: snapshot,
-            followsAcrossSpaces: viewModel.configuration.pinnedNoteFollowsAcrossSpaces
+            session: session,
+            followsAcrossSpaces: viewModel.configuration.pinnedNoteFollowsAcrossSpaces,
+            onOpenSettings: onOpenSettings
         )
         note.onUserClose = { [weak self, weak note] in
             guard let self, let note else { return }
             self.noteControllers.removeAll { $0 === note }
         }
+        note.onUnpin = { [weak self, weak note] in
+            guard let self, let note else { return }
+            self.unpin(note)
+        }
         noteControllers.append(note)
-        note.show(at: originTopLeft)
+        // The note sits below the live panel's level. Show it instantly at
+        // full alpha first, then close the live panel — a plain window swap
+        // with no blank/fade frame.
+        note.show(at: originTopLeft, animated: false)
+        AppLogger.log("detachAsNote: opened pinned note")
 
         close()
     }
 
-    /// Capture the current dual-segment state into a `PinnedNoteSnapshot`.
-    /// Returns nil when there's nothing meaningful to pin (still loading /
-    /// no content / screenshot mode without items).
-    private func makePinnedSnapshot() -> PinnedNoteSnapshot? {
-        switch viewModel.state {
-        case .text(let segments):
-            guard segments.hasAnyContent else { return nil }
-            // Pinned notes mirror the live tooltip's auto-expand rule for
-            // untranslatable inputs: the <atst-desc> block becomes the
-            // useful payload, so we should pop it open even if the user's
-            // general "expand by default" preference is off.
-            let aiOutput = segments.ai?.state.output
-            let autoExpand = (aiOutput?.untranslatable ?? false)
-                && viewModel.configuration.smartExplanationEnabled
-                && (aiOutput?.hasDescription ?? false)
-            let initiallyExpanded = autoExpand
-                ? true
-                : viewModel.configuration.smartExplanationExpandedByDefault
-            return PinnedNoteSnapshot(
-                sourceText: segments.source,
-                apiSegments: segments.api,
-                aiSegment: segments.ai,
-                phoneticEnabled: viewModel.configuration.phoneticEnabled,
-                smartExplanationEnabled: viewModel.configuration.smartExplanationEnabled,
-                initiallyExpanded: initiallyExpanded
-            )
-        case .screenshotSuccess(let output, let source, let model),
-             .screenshotStreaming(_, let output, let model, let source):
-            guard !output.items.isEmpty else { return nil }
-            // Screenshot pins reuse the dual-section data shape but with
-            // only an AI segment (no API providers ever run on screenshots).
-            let ai = ProviderSegment(
-                id: .ai,
-                displayName: model,
-                modelHint: model,
-                state: .success(output: output, latencyMs: nil, fromCache: false, cacheInfo: nil)
-            )
-            return PinnedNoteSnapshot(
-                sourceText: source,
-                apiSegments: [],
-                aiSegment: ai,
-                phoneticEnabled: viewModel.configuration.phoneticEnabled,
-                smartExplanationEnabled: viewModel.configuration.smartExplanationEnabled,
-                initiallyExpanded: viewModel.configuration.smartExplanationExpandedByDefault
-            )
-        case .idle, .input, .screenshotLoading, .failure:
-            return nil
+    /// "Unpin" returns a note's session to the normal live tooltip: adopt
+    /// its state (and restart unfinished providers) into this controller's
+    /// view model, close the note, and show the live panel at the note's
+    /// position.
+    private func unpin(_ note: PinnedNoteController) {
+        let topLeft = note.topLeft
+        viewModel.adoptState(from: note.session)
+
+        // Show the live panel above the note first, then dismiss the note.
+        // Both steps are instant, so the swap has no fade-out/fade-in gap.
+        show(anchor: .topLeft(topLeft), activate: false, animated: false)
+        note.closeWithoutCallback()
+        noteControllers.removeAll { $0 === note }
+
+        if case .input = viewModel.state {
+            panel.allowsKeyStatus = true
+            panel.makeKeyAndOrderFront(nil)
         }
+        AppLogger.log("unpin: note returned to live tooltip")
     }
 
     // MARK: - Dismissal monitors
@@ -256,6 +245,13 @@ final class FloatingPanelController {
             guard let self else { return event }
             if event.window === self.panel { return event }
             if self.noteControllers.contains(where: { $0.owns(event.window) }) { return event }
+            // The per-result switch control opens a SwiftUI Menu in its own
+            // pop-up window. Clicking an item there must select it, not count
+            // as an outside click that dismisses the tooltip.
+            if let window = event.window,
+               window.level == .popUpMenu || window.className.localizedCaseInsensitiveContains("menu") {
+                return event
+            }
             self.close()
             return event
         }
@@ -340,6 +336,9 @@ final class FloatingPanelController {
             },
             onSubmitInput: { [weak self] text in
                 self?.onSubmitInput(text)
+            },
+            onEditSource: { [weak self] source, previous in
+                self?.editSource(source, previous: previous)
             }
         )
         let controller = NSHostingController(rootView: view)
@@ -413,6 +412,12 @@ final class FloatingPanelController {
     /// clamp" logic, which often pushed the tooltip away from the source
     /// when the source was near the screen edge.
     private func topLeftPoint(for anchor: FloatingPanelAnchor, size: NSSize) -> NSPoint {
+        if case .topLeft(let point) = anchor {
+            let screen = NSScreen.screens.first(where: { $0.frame.contains(point) }) ?? NSScreen.main
+            let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
+            return clamp(topLeft: point, size: size, frame: visible)
+        }
+
         let anchorRect = self.anchorRect(for: anchor)
         let probe = NSPoint(x: anchorRect.midX, y: anchorRect.midY)
         let screen = NSScreen.screens.first(where: { $0.frame.contains(probe) }) ?? NSScreen.main
@@ -437,6 +442,8 @@ final class FloatingPanelController {
             return NSRect(x: p.x, y: p.y, width: 1, height: 1)
         case .rect(let r):
             return r
+        case .topLeft(let p):
+            return NSRect(origin: p, size: .zero)
         }
     }
 
@@ -484,6 +491,9 @@ enum FloatingPanelAnchor {
     case mouse
     case point(NSPoint)
     case rect(NSRect)
+    /// Exact top-left placement, used when a pinned note returns to the
+    /// live tooltip so it doesn't jump to a computed side of an anchor.
+    case topLeft(NSPoint)
 }
 
 /// The expand / collapse animation is owned entirely by SwiftUI. AppKit just
@@ -513,20 +523,64 @@ private final class TooltipPanel: NSPanel {
 
 // MARK: - Pinned note window
 
+/// A pinned note is a full translation session, not a frozen snapshot. It
+/// owns a detached `TranslatorViewModel`, so the shared
+/// `TranslationResultView` gives it the same provider switch, collapse,
+/// source editing, refresh and copy controls as the live tooltip. Unpinning
+/// hands the session back to `FloatingPanelController`'s live view model.
 @MainActor
 private final class PinnedNoteController {
-    private let panel: NSPanel
-    private let hostingController: NSHostingController<PinnedNoteView>
+    let session: TranslatorViewModel
+
+    private let panel: TooltipPanel
+    private let hostingController: NSHostingController<TranslationResultView>
+    private let layout = TooltipLayout()
+    private var lastAppliedContentSize: NSSize?
+    private var stateObserver: AnyCancellable?
+    private var moveObserver: NSObjectProtocol?
 
     var onUserClose: (() -> Void)?
+    var onUnpin: (() -> Void)?
 
-    init(snapshot: PinnedNoteSnapshot, followsAcrossSpaces: Bool) {
+    var topLeft: NSPoint {
+        NSPoint(x: panel.frame.minX, y: panel.frame.maxY)
+    }
+
+    init(
+        session: TranslatorViewModel,
+        followsAcrossSpaces: Bool,
+        onOpenSettings: @escaping () -> Void
+    ) {
+        self.session = session
+
         var dismissAction: () -> Void = {}
-        let view = PinnedNoteView(snapshot: snapshot) {
-            dismissAction()
-        }
+        var sizeAction: (CGSize) -> Void = { _ in }
+        var unpinAction: () -> Void = {}
+
+        let view = TranslationResultView(
+            viewModel: session,
+            layout: layout,
+            onClose: { dismissAction() },
+            onContentSizeChange: { sizeAction($0) },
+            onRefresh: { [weak session] source in
+                guard let session else { return }
+                session.translateText(source, bypassCache: true)
+            },
+            onOpenSettings: onOpenSettings,
+            onSubmitInput: { [weak session] text in
+                guard let session else { return }
+                session.translateText(text, bypassCache: false, sourceEditable: true)
+            },
+            onEditSource: { [weak session] source, previous in
+                guard let session else { return }
+                session.showInput(prefill: source, previous: previous)
+            },
+            isPinnedNote: true,
+            onUnpin: { unpinAction() },
+            surfaceBorder: .accent
+        )
         let host = NSHostingController(rootView: view)
-        host.sizingOptions = [.preferredContentSize, .intrinsicContentSize]
+        host.sizingOptions = []
         host.view.wantsLayer = true
         host.view.layer?.backgroundColor = NSColor.clear.cgColor
         self.hostingController = host
@@ -550,26 +604,44 @@ private final class PinnedNoteController {
         panel.contentView?.layer?.backgroundColor = NSColor.clear.cgColor
         panel.isReleasedWhenClosed = false
         panel.isMovable = true
-        panel.isMovableByWindowBackground = true
+        panel.isMovableByWindowBackground = false
         self.panel = panel
 
-        dismissAction = { [weak self] in
+        dismissAction = { [weak self] in self?.close() }
+        sizeAction = { [weak self] size in self?.handleContentSize(size) }
+        unpinAction = { [weak self] in self?.onUnpin?() }
+
+        stateObserver = session.$state.sink { [weak self] state in
             guard let self else { return }
-            self.panel.orderOut(nil)
-            self.onUserClose?()
+            if case .input = state {
+                self.panel.allowsKeyStatus = true
+                self.panel.makeKeyAndOrderFront(nil)
+            } else {
+                self.panel.allowsKeyStatus = false
+                if self.panel.isKeyWindow {
+                    self.panel.resignKey()
+                }
+            }
+        }
+
+        moveObserver = NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification,
+            object: panel,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.updateMaxContentHeight() }
         }
     }
 
     func owns(_ window: NSWindow?) -> Bool { window === panel }
 
-    func show(at topLeft: NSPoint) {
-        hostingController.view.layoutSubtreeIfNeeded()
-        let fitting = hostingController.view.fittingSize
-        let size = (fitting.width > 1 && fitting.height > 1) ? fitting : panel.frame.size
-        let frame = NSRect(x: topLeft.x, y: topLeft.y - size.height, width: size.width, height: size.height)
-        panel.setFrame(frame, display: true)
-        panel.alphaValue = 0
+    func show(at topLeft: NSPoint, animated: Bool = true) {
+        panel.setFrameTopLeftPoint(topLeft)
+        updateMaxContentHeight()
+        ensureSized()
+        panel.alphaValue = animated ? 0 : 1
         panel.orderFrontRegardless()
+        guard animated else { return }
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.16
             ctx.timingFunction = CAMediaTimingFunction(name: .easeOut)
@@ -577,11 +649,60 @@ private final class PinnedNoteController {
         }
     }
 
+    func close() {
+        closeWithoutCallback()
+        onUserClose?()
+    }
+
+    func closeWithoutCallback() {
+        session.cancelActiveTranslations()
+        stateObserver?.cancel()
+        stateObserver = nil
+        if let moveObserver {
+            NotificationCenter.default.removeObserver(moveObserver)
+            self.moveObserver = nil
+        }
+        panel.orderOut(nil)
+    }
+
     /// Re-applies the Spaces-following collection behavior. Called when
     /// the user flips the toggle in settings so live notes update without
     /// needing to be re-pinned.
     func setFollowsAcrossSpaces(_ enabled: Bool) {
         panel.collectionBehavior = Self.collectionBehavior(followsAcrossSpaces: enabled)
+    }
+
+    private func ensureSized() {
+        hostingController.view.layoutSubtreeIfNeeded()
+        let fitting = hostingController.view.fittingSize
+        guard fitting.width > 1, fitting.height > 1 else { return }
+        resizePanel(to: fitting)
+    }
+
+    private func handleContentSize(_ size: CGSize) {
+        guard size.width > 1, size.height > 1 else { return }
+        resizePanel(to: NSSize(width: size.width, height: size.height))
+    }
+
+    private func resizePanel(to newSize: NSSize) {
+        if let last = lastAppliedContentSize,
+           abs(last.width - newSize.width) < 0.25,
+           abs(last.height - newSize.height) < 0.25 {
+            return
+        }
+        lastAppliedContentSize = newSize
+        panel.setContentSize(newSize)
+        updateMaxContentHeight()
+    }
+
+    private func updateMaxContentHeight() {
+        guard let screen = panel.screen ?? NSScreen.main else { return }
+        let visible = screen.visibleFrame
+        let topY = panel.frame.maxY
+        let available = max(120, topY - visible.minY - 8)
+        if layout.maxContentHeight != available {
+            layout.maxContentHeight = available
+        }
     }
 
     /// `.fullScreenAuxiliary` keeps the note visible when another app is

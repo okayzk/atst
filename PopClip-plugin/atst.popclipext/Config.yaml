@@ -1,0 +1,17 @@
+# atst PopClip extension
+# Sends the selected text to atst via its `atst://` URL scheme.
+# The `***` placeholder is replaced by PopClip with the selected text,
+# already URL-encoded.
+name: atst
+identifier: dev.local.atst.popclip
+description:
+  en: Translate the selected text with atst
+  zh-hans: 用 atst 翻译所选文本
+icon: icon.png
+url: "atst://translate?text=***"
+app:
+  name: atst
+  link: https://github.com/okayzk/atst
+  checkInstalled: true
+  bundleIdentifiers:
+    - dev.local.atst

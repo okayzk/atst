@@ -1,42 +1,39 @@
 import Foundation
 
-/// Unofficial Microsoft Translator edge endpoint adapter. Same two-step
-/// flow the Edge browser's built-in translator uses: fetch a short-lived
-/// JWT, then call the translate endpoint with the JWT as both the `Bearer`
-/// auth header and the `Ocp-Apim-Subscription-Key`. No user key required.
+/// Unofficial Microsoft Edge translator adapter.
 ///
-/// Stability tradeoff: same as Google — unofficial, may break or be
-/// rate-limited; we surface clean errors when it does.
+/// The old Edge auth flow (`edge.microsoft.com/translate/auth` → JWT →
+/// `api-edge.cognitive.microsofttranslator.com/translate`) was retired in
+/// 2026-07: the auth endpoint now answers 404 for every request. The web
+/// translator's unauthenticated successor is:
 ///
-/// Step 1 (token):
-///   GET https://edge.microsoft.com/translate/auth
-///   → "<jwt>" (raw text response body)
+///   POST https://edge.microsoft.com/translate/translatetext
+///        ?from=&to=<lang>&isEnterpriseClient=false
+///   Body: ["line 1", "line 2"]
+///   → [{"translations":[{"text":"…"}]}, …]
 ///
-/// Step 2 (translate):
-///   POST https://api-edge.cognitive.microsofttranslator.com/translate
-///     ?from=<from>&to=<to>&api-version=3.0&textType=plain
-///   Headers:
-///     Authorization: Bearer <token>
-///     Ocp-Apim-Subscription-Key: <token>
-///     Content-Type: application/json
-///   Body: [{"Text":"<line 1>"}, {"Text":"<line 2>"}, …]
-///   → [{"translations":[{"text":"<translated>","to":"<to>"}]}, …]
+/// No API key or token required. Stability tradeoff is the same as Google /
+/// DeepL — unofficial and potentially rate-limited; errors surface as a
+/// normal provider failure.
 struct MicrosoftProvider: TranslationProvider {
     let id: TranslationProviderID = .microsoft
     let displayName: String = "Microsoft"
     let modelHint: String? = nil
     let targetLanguage: String
 
-    private let authEndpoint = URL(string: "https://edge.microsoft.com/translate/auth")!
-    private let translateBase = "https://api-edge.cognitive.microsofttranslator.com/translate"
+    private let endpoint = URL(string: "https://edge.microsoft.com/translate/translatetext")!
+    private static let userAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0.0.0 Safari/537.36 Edg/130.0.0.0"
 
-    /// Prewarm by triggering a token fetch — keeps both the auth host and
-    /// (via subsequent requests) the translate host warm. Idempotent because
-    /// the token manager caches.
+    /// Warm the Edge host. The endpoint rejects GET/HEAD, but the connection
+    /// pool (DNS + TLS) is shared with the subsequent POST.
     static func prewarm() {
-        Task.detached(priority: .utility) {
-            _ = try? await MicrosoftAuthToken.shared.token()
-        }
+        var request = URLRequest(url: URL(string: "https://edge.microsoft.com/translate/translatetext")!)
+        request.httpMethod = "HEAD"
+        request.timeoutInterval = 5
+        URLSession.shared.dataTask(with: request) { _, response, _ in
+            let status = (response as? HTTPURLResponse)?.statusCode ?? -1
+            AppLogger.log("microsoft prewarmed status=\(status)")
+        }.resume()
     }
 
     func translate(text: String) -> AsyncThrowingStream<TranslationProviderEmission, Error> {
@@ -60,67 +57,46 @@ struct MicrosoftProvider: TranslationProvider {
     private func performTranslate(text: String) async throws -> TranslationProviderEmission {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { throw AppError.emptyTranslation }
-        let toCode = LanguageCode.bcp47(from: targetLanguage) ?? "en"
-
-        // One-shot retry on 401 — token may have expired between our last
-        // fetch and this request despite our buffer.
-        do {
-            return try await translateOnce(text: text, target: toCode, forceRefresh: false)
-        } catch let error as MicrosoftAuthError where error == .unauthorized {
-            AppLogger.log("microsoft 401, retrying with fresh token")
-            return try await translateOnce(text: text, target: toCode, forceRefresh: true)
-        }
-    }
-
-    private func translateOnce(text: String, target: String, forceRefresh: Bool) async throws -> TranslationProviderEmission {
-        let token: String
-        do {
-            token = try await MicrosoftAuthToken.shared.token(forceRefresh: forceRefresh)
-        } catch {
-            throw AppError.providerUnavailable(name: "Microsoft", detail: "auth: \(error.localizedDescription)")
-        }
-
-        var components = URLComponents(string: translateBase)!
-        components.queryItems = [
-            URLQueryItem(name: "from", value: ""),
-            URLQueryItem(name: "to", value: target),
-            URLQueryItem(name: "api-version", value: "3.0"),
-            URLQueryItem(name: "textType", value: "plain")
-        ]
-        guard let url = components.url else {
-            throw AppError.providerRequestFailed(name: "Microsoft", detail: "failed to build URL")
-        }
+        let toCode = Self.targetCode(for: targetLanguage)
 
         // One array entry per non-blank line so the source's line /
         // paragraph structure survives — see `LineBatch`.
         let batch = LineBatch(text: text)
         let payloadLines = batch.payload
+        guard !payloadLines.isEmpty else { throw AppError.emptyTranslation }
+
+        var components = URLComponents(url: endpoint, resolvingAgainstBaseURL: false)!
+        components.queryItems = [
+            URLQueryItem(name: "from", value: ""),
+            URLQueryItem(name: "to", value: toCode),
+            URLQueryItem(name: "isEnterpriseClient", value: "false")
+        ]
+        guard let url = components.url else {
+            throw AppError.providerRequestFailed(name: "Microsoft", detail: "failed to build URL")
+        }
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 15
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
-        request.setValue(token, forHTTPHeaderField: "Ocp-Apim-Subscription-Key")
-        request.httpBody = try JSONSerialization.data(
-            withJSONObject: payloadLines.map { ["Text": $0] },
-            options: []
-        )
+        request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
+        // The successor endpoint takes a bare string array; the old
+        // [{ "Text": … }] shape is rejected.
+        request.httpBody = try JSONSerialization.data(withJSONObject: payloadLines, options: [])
 
         let started = Date()
         let (data, response): (Data, URLResponse)
         do {
             (data, response) = try await URLSession.shared.data(for: request)
         } catch let urlError as URLError {
-            throw AppError.providerUnavailable(name: "Microsoft", detail: "\(urlError.localizedDescription)")
+            throw AppError.providerUnavailable(name: "Microsoft", detail: urlError.localizedDescription)
         }
         guard let http = response as? HTTPURLResponse else {
             throw AppError.providerRequestFailed(name: "Microsoft", detail: "returned an unrecognised response")
         }
         let latency = Int(Date().timeIntervalSince(started) * 1000)
-        AppLogger.log("microsoft translate status=\(http.statusCode) bytes=\(data.count) latencyMs=\(latency)")
+        AppLogger.log("microsoft translate status=\(http.statusCode) bytes=\(data.count) latencyMs=\(latency) lines=\(payloadLines.count)")
 
-        if http.statusCode == 401 { throw MicrosoftAuthError.unauthorized }
         guard (200..<300).contains(http.statusCode) else {
             let preview = String(data: data.prefix(400), encoding: .utf8) ?? "<binary>"
             throw AppError.providerRequestFailed(name: "Microsoft", detail: "HTTP \(http.statusCode): \(preview)")
@@ -131,6 +107,7 @@ struct MicrosoftProvider: TranslationProvider {
             throw AppError.providerRequestFailed(name: "Microsoft", detail: "line count mismatch (sent \(payloadLines.count), got \(translatedLines.count))")
         }
         guard !translated.isEmpty else { throw AppError.emptyTranslation }
+
         let untranslatable = looksUntranslatable(source: text, result: translated)
         let output = TranslationOutput(
             result: translated,
@@ -163,75 +140,14 @@ struct MicrosoftProvider: TranslationProvider {
         let normResult = result.lowercased()
         return !normSource.isEmpty && normSource == normResult
     }
-}
 
-// MARK: - Token manager
-
-enum MicrosoftAuthError: Error, Equatable {
-    case unauthorized
-    case fetchFailed(String)
-}
-
-/// Caches the Edge-translate JWT and refreshes lazily. Tokens are short
-/// (typically 10 min). We parse the `exp` claim to drive refresh; if parsing
-/// fails (token shape changed), we assume a conservative 8-minute lifetime.
-actor MicrosoftAuthToken {
-    static let shared = MicrosoftAuthToken()
-
-    private var cachedToken: String?
-    private var expiresAt: Date?
-    /// Refresh if we're within this window of expiry — buys us a safety
-    /// margin for clock skew and round-trip latency.
-    private let refreshBuffer: TimeInterval = 30
-    /// Fallback lifetime when we can't parse the JWT exp claim.
-    private let fallbackLifetime: TimeInterval = 8 * 60
-
-    func token(forceRefresh: Bool = false) async throws -> String {
-        if !forceRefresh,
-           let cached = cachedToken,
-           let expiry = expiresAt,
-           expiry.timeIntervalSinceNow > refreshBuffer {
-            return cached
+    /// Microsoft accepts generic codes except for Chinese, where it wants
+    /// `zh-Hans` / `zh-Hant` script variants.
+    private static func targetCode(for language: String) -> String {
+        let code = (LanguageCode.bcp47(from: language) ?? "en").lowercased()
+        if code.hasPrefix("zh") {
+            return (code.contains("tw") || code.contains("hk") || code.contains("hant")) ? "zh-Hant" : "zh-Hans"
         }
-        return try await fetchToken()
-    }
-
-    private func fetchToken() async throws -> String {
-        var request = URLRequest(url: URL(string: "https://edge.microsoft.com/translate/auth")!)
-        request.timeoutInterval = 10
-        let data: Data
-        let response: URLResponse
-        do {
-            (data, response) = try await URLSession.shared.data(for: request)
-        } catch {
-            throw MicrosoftAuthError.fetchFailed(error.localizedDescription)
-        }
-        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
-              let token = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !token.isEmpty else {
-            throw MicrosoftAuthError.fetchFailed("auth endpoint returned no token")
-        }
-        cachedToken = token
-        expiresAt = Self.extractExpiry(from: token) ?? Date().addingTimeInterval(fallbackLifetime)
-        AppLogger.log("microsoft token fetched, expiresAt=\(expiresAt?.timeIntervalSinceNow ?? -1)s")
-        return token
-    }
-
-    /// Decode the base64url-encoded payload of a JWT and pull the `exp` claim.
-    /// Returns nil when the input isn't a JWT, the payload isn't valid JSON,
-    /// or `exp` is missing — caller falls back to a conservative lifetime.
-    private static func extractExpiry(from jwt: String) -> Date? {
-        let parts = jwt.split(separator: ".")
-        guard parts.count >= 2 else { return nil }
-        var payload = String(parts[1])
-            .replacingOccurrences(of: "-", with: "+")
-            .replacingOccurrences(of: "_", with: "/")
-        while payload.count % 4 != 0 { payload += "=" }
-        guard let data = Data(base64Encoded: payload),
-              let json = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
-              let exp = json["exp"] as? Double else {
-            return nil
-        }
-        return Date(timeIntervalSince1970: exp)
+        return code
     }
 }

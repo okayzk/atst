@@ -12,7 +12,7 @@
 [![Version](https://img.shields.io/badge/version-v0.4.0-blue)](https://github.com/itaober/atst/releases/latest)
 [![License](https://img.shields.io/badge/license-Apache--2.0-orange)](./LICENSE)
 
-按下快捷键，立刻得到翻译。内置 Google + Microsoft 接口**开箱即用**；配置自己的 AI 模型后还能解锁词典级释义、IPA 音标和智能解释。
+按下快捷键，立刻得到翻译。内置 Google + Microsoft + DeepL 接口**开箱即用**；配置自己的 AI 模型后还能解锁词典级释义、IPA 音标和智能解释。
 
 [English](./README.md) · [安装](#安装) · [使用](#使用) · [功能](#功能)
 
@@ -24,16 +24,16 @@
 
 - ⚡ **一键划词翻译** — 在 macOS 任何应用里选中文本，按 `⌥D`，~200ms 出结果；`Esc` 关闭
 - 🔁 **反向翻译** — 选中的文本已经是目标语言时，自动改译成第二目标语言（默认中英互译）
-- ⌨️ **手动输入翻译** — 没选中文字时按 `⌥D` 会出现输入框，输入 / 粘贴即可
+- ⌨️ **手动输入翻译** — 没选中文字时按 `⌥D` 会出现输入框，输入 / 粘贴即可；翻译后原文保留在译文上方，点一下就能重新编辑再翻
 - 🖼️ **截图翻译** — 按 `⌥S` 框选区域即可翻译。默认走本地 Vision OCR（快 + 隐私 + 免费）；OCR 找不到文字时自动 fallback 到 AI 视觉
-- 🔀 **多源并列对照** — Google 和 Microsoft 结果显示在上方，AI 结果在下方；两者结果相同时合并成一行
+- 🔀 **多源并列对照** — Google、Microsoft 和 DeepL 结果显示在上方，AI 结果在下方；每条结果都能单独切换服务或折叠
 - 🧠 **AI 词典模式** — 单词查询能返回多个义项、IPA 音标、用法解释
-- 📌 **固定为便签** — 把翻译结果钉成悬浮便签，方便回看
+- 📌 **固定为便签** — 把翻译结果钉成悬浮便签；便签保留单条结果的切换、折叠和原文编辑，也能取消固定回到普通浮窗
 - 💾 **本地缓存** — 重复查询命中 JSON 缓存，按 provider 分别缓存，TTL 和容量上限可配
 - 🫧 **原生 Liquid Glass** — 支持的 macOS 26+ 环境会让翻译浮窗和固定便签使用 Liquid Glass；旧系统自动回退到原来的材质
 - 🪶 **体积小** — DMG 约 2 MB，安装后约 4 MB。纯 Swift/AppKit，无 Electron / Web 视图
 - 🌐 **双语界面** — 根据系统语言自动切换中文 / 英文，也支持手动指定
-- 🆓 **零配置即用** — 不填 API key 也能用（内置 Google + Microsoft）；想要更丰富的输出再接 OpenAI 兼容接口
+- 🆓 **零配置即用** — 不填 API key 也能用（内置 Google + Microsoft + DeepL）；想要更丰富的输出再接 OpenAI 兼容接口
 
 ---
 
@@ -104,12 +104,24 @@ open .build/atst.dmg
 
 header 显示检测到的源语言和目标语言（例如 `英语 → 简体中文`）。下方是一段或两段内容：
 
-- **上方 — API 翻译结果**（Google / Microsoft）：快、免费、无需 key；两者结果相同时只显示一行
+- **上方 — API 翻译结果**（Google / Microsoft / DeepL）：快、免费、无需 key；每行都能在标题处切换到其他已启用服务，或折叠隐藏
 - **下方 — AI 翻译结果**（如果启用）：包含多义、音标、技术术语解释等丰富信息
 
-每行右侧有独立的复制按钮。整个浮窗 **拖动 header 可以移动位置**；按 `Esc` 或点击外部关闭。点击 header 的 📌 图标可以固定为便签。
+每行右侧有独立的复制按钮。整个浮窗 **拖动 header 可以移动位置**；按 `Esc` 或点击外部关闭。点击 header 的 📌 图标可以固定成便签。便签保留同样的切换、折叠和原文编辑控件；标题栏的取消固定按钮会把它变回普通浮窗，× 则直接关闭。
+
+每条结果的标题右侧还有一个 **切换按钮**（列出当前未使用的其他已启用服务）和一个 **折叠箭头**。折叠只是隐藏该行，不会重新翻译；编辑原文再翻译时会全部展开。切换菜单分割线下的选项会保留当前行，并一次性调用其他所有已启用的服务。
 
 某个翻译源连续失败 3 次（网络被墙、接口挂了）后，它那一行会折叠成一行小字并带一个 **停用** 按钮，不再每次刷红。
+
+### PopClip 扩展
+
+仓库在 [`PopClip-plugin/`](PopClip-plugin/) 里附带了一个 [PopClip](https://www.popclip.app/) 扩展：选中文本后点 PopClip 栏里的 **atst**，翻译浮窗会在鼠标位置打开。
+
+1. 先安装打包好的 atst `.app`（`atst://` URL scheme 声明在 app bundle 里，`swift run` 不会注册）。
+2. 双击 `PopClip-plugin/atst.popclipext`，按 PopClip 提示安装。本地未签名构建如果被 PopClip 拦截，先执行 `defaults write com.pilotmoon.popclip LoadUnsignedExtensions -bool YES`。
+3. 确认 atst 里至少启用了一个翻译 provider。
+
+扩展只负责打开 `atst://translate?text=<选中文本>`；atst 复用原有的划词翻译流程（多 provider、缓存、反向翻译）。打包和图标重新生成见 [`PopClip-plugin/README.md`](PopClip-plugin/README.md)。
 
 ### 反向翻译
 
@@ -121,8 +133,12 @@ header 显示检测到的源语言和目标语言（例如 `英语 → 简体中
 
 通用页放目标语言 / 第二目标语言、登录自启动、快捷键、截图 OCR 和缓存选项，以及两个翻译方式开关：
 
-- ☑️ **API 翻译**（默认开启）— Google + Microsoft，零配置
+- ☑️ **API 翻译**（默认开启）— Google + Microsoft + DeepL，零配置
+
+API 子页每个 provider 名称后都有一个可达性圆点，打开页面时自动检测；AI 子页 Timeout 下方的 **测试** 按钮会发一条极小请求，按钮文字旁显示检测结果。
 - ☐ **AI 翻译**（默认关闭）— OpenAI 兼容接口，在 AI 子页配置 base URL / key / model
+
+下方新增 **默认翻译服务**，用来选择每次新翻译实际调用的服务，可多选；未勾选的服务仍可在单条结果的标题菜单里随时切换。
 
 #### AI 配置（可选）
 
@@ -132,7 +148,7 @@ header 显示检测到的源语言和目标语言（例如 `英语 → 简体中
 - **API Key** — 本地保存在 `~/Library/Preferences/dev.local.atst.plist`
 - **翻译模型** — 划词翻译用的模型名（如 `gpt-4o-mini`、`qwen2.5:7b`）
 - **截图模型** — Vision OCR 关闭时用的视觉模型（如 `gpt-4o`、`claude-3.5-sonnet`）
-- **超时** — 单次 AI 请求的空闲等待上限（Google / Microsoft 固定 15 秒）
+- **超时** — 单次 AI 请求的空闲等待上限（Google / Microsoft 固定 15 秒，DeepL 20 秒）
 - **音标** — 给单词查询追加 IPA
 - **智能注释** — 添加词典风格的释义块（习语、专有名词定义等）
 - **翻译提示词** — 系统提示词和智能注释提示词完全可编辑
@@ -156,6 +172,7 @@ header 显示检测到的源语言和目标语言（例如 `英语 → 简体中
 |---|---|---|---|---|---|---|
 | Google（内置） | ❌ | ✅ | — | ❌ | ❌ | ❌ |
 | Microsoft（内置） | ❌ | ✅ | — | ❌ | ❌ | ❌ |
+| DeepL（内置，非官方） | ❌ | ✅（单次 1500 字符） | — | ❌ | ❌ | ❌ |
 | OpenAI 兼容 | ✅ | 看接口 | ✅ | ✅ | ✅ | ✅ |
 
 ### 其他细节
@@ -180,7 +197,7 @@ header 显示检测到的源语言和目标语言（例如 `英语 → 简体中
 ## 隐私
 
 - atst 是 **纯本地应用**。无遥测、无埋点、无崩溃上报。
-- 翻译时只有你触发的那段文字会发送给你启用的翻译源（Google / Microsoft / 你的 AI 接口）。浮窗 header 的语言识别和反向翻译判断都在本机完成。
+- 翻译时只有你触发的那段文字会发送给你启用的翻译源（Google / Microsoft / DeepL / 你的 AI 接口）。浮窗 header 的语言识别和反向翻译判断都在本机完成。
 - 翻译之外的网络请求：每次启动向 `api.github.com` 查一次新版本（最多 4 小时一次）；按下快捷键修饰键时向已启用的翻译源发一个很小的连接预热请求。
 - 缓存保存在 `~/Library/Caches/dev.local.atst/translations.json`，设置保存在 `~/Library/Preferences/dev.local.atst.plist`，随时可删除。
 - 诊断日志写在 `/tmp/atst.log`，里面包含被翻译文本的开头几个字，随时可删。

@@ -27,10 +27,22 @@ struct TranslationResultView: View {
     /// Invoked with the typed text when the user submits the manual-entry
     /// editor (Return or the Translate button).
     var onSubmitInput: (String) -> Void = { _ in }
+    /// Invoked when the user clicks the source block of a finished manual
+    /// translation, to reopen the editor with the original text.
+    var onEditSource: (String, TextSegments) -> Void = { _, _ in }
+    /// Pinned-note mode swaps the pin action for unpin and draws the accent
+    /// border so a sticky note stays visually distinct from the live
+    /// tooltip.
+    var isPinnedNote: Bool = false
+    var onUnpin: (() -> Void)? = nil
+    var surfaceBorder: AdaptiveGlassSurface.Border = .subtle
 
     @State private var descriptionExpanded: Bool = false
     @State private var lastSeenSourceForExpansion: String = ""
-    @State private var inputText: String = ""
+    /// Provider rows the user has temporarily hidden. Purely a view state:
+    /// collapsing never cancels a request or triggers a new one.
+    @State private var collapsedProviders: Set<TranslationProviderID> = []
+    @State private var lastSeenTranslationGeneration: Int = 0
     @FocusState private var inputFocused: Bool
 
     private let cornerRadius: CGFloat = 10
@@ -73,13 +85,18 @@ struct TranslationResultView: View {
         .onReceive(viewModel.$state) { state in
             syncExpansion(for: state)
         }
+        .onReceive(viewModel.$translationGeneration) { generation in
+            guard generation != lastSeenTranslationGeneration else { return }
+            lastSeenTranslationGeneration = generation
+            collapsedProviders.removeAll()
+        }
     }
 
     private func tooltipChrome(descriptionExpanded expanded: Bool, includeSurface: Bool) -> some View {
         let stack = tooltipStack(descriptionExpanded: expanded)
         return Group {
             if includeSurface {
-                stack.modifier(AdaptiveGlassSurface(cornerRadius: cornerRadius))
+                stack.modifier(AdaptiveGlassSurface(cornerRadius: cornerRadius, border: surfaceBorder))
             } else {
                 stack
             }
@@ -115,12 +132,14 @@ struct TranslationResultView: View {
     }
 
     /// Two-tier tooltip width — see `TooltipSizing` for the rule and why.
-    /// Same logic is shared with `PinnedNoteView` so a wide live tooltip
-    /// remains wide once pinned.
+    /// Pinned notes reuse this view, so a wide live tooltip remains wide
+    /// once pinned.
     /// In input mode the width follows the typed text with the same rule,
     /// so the panel doesn't jump when the result replaces the editor.
     private var preferredTooltipWidth: CGFloat {
-        if case .input = viewModel.state { return TooltipSizing.preferredWidth(forSource: inputText) }
+        if case .input = viewModel.state {
+            return TooltipSizing.preferredWidth(forSource: viewModel.inputDraft)
+        }
         return TooltipSizing.preferredWidth(forSource: viewModel.state.sourceText)
     }
 
@@ -148,43 +167,36 @@ struct TranslationResultView: View {
             // was served from cache. Re-translates from scratch and bypasses
             // the cache for every segment.
             if anyFromCache {
-                Button {
+                headerIconButton(
+                    "arrow.clockwise",
+                    help: L.pick("Refresh (bypass cache)", "重新翻译（绕过缓存）")
+                ) {
                     onRefresh(viewModel.state.sourceText)
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 10, weight: .semibold))
-                        .frame(width: 16, height: 16)
-                        .contentShape(Rectangle())
                 }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.tertiary)
-                .help(L.pick("Refresh (bypass cache)", "重新翻译（绕过缓存）"))
             }
 
-            if canPin {
-                Button {
+            if isPinnedNote {
+                if let onUnpin {
+                    headerIconButton(
+                        "pin.slash",
+                        help: L.pick("Unpin (return to tooltip)", "取消置顶（回到翻译浮窗）")
+                    ) {
+                        onUnpin()
+                    }
+                }
+            } else if canPin {
+                headerIconButton(
+                    "pin",
+                    help: L.pick("Pin as note", "固定为便签"),
+                    rotation: -30
+                ) {
                     viewModel.pinned = true
-                } label: {
-                    Image(systemName: "pin")
-                        .font(.system(size: 10, weight: .semibold))
-                        .frame(width: 16, height: 16)
-                        .contentShape(Rectangle())
-                        .rotationEffect(.degrees(-30))
                 }
-                .buttonStyle(.borderless)
-                .foregroundStyle(.tertiary)
-                .help(L.pick("Pin as note", "固定为便签"))
             }
 
-            Button(action: onClose) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .bold))
-                    .frame(width: 16, height: 16)
-                    .contentShape(Rectangle())
+            headerIconButton("xmark", help: L.pick("Close", "关闭")) {
+                onClose()
             }
-            .buttonStyle(.borderless)
-            .foregroundStyle(.tertiary)
-            .help(L.pick("Close", "关闭"))
         }
         // The whole header strip — model name, status dot, spacer — is a
         // drag handle for the floating panel. Buttons inside (refresh /
@@ -218,10 +230,35 @@ struct TranslationResultView: View {
         case .text(let segments):
             return segments.languagePairLabel ?? Branding.appName
         case .input:
+            if viewModel.inputPrevious != nil {
+                return L.pick("Edit original", "编辑原文")
+            }
             return L.pick("Type to translate", "输入翻译")
         case .idle, .failure:
             return Branding.appName
         }
+    }
+
+    /// One geometry for every header icon: a 10×10 image inside a 16×16 hit
+    /// area, tertiary tint. Keeps refresh / pin / unpin / close identical.
+    private func headerIconButton(
+        _ systemName: String,
+        help: String,
+        rotation: Double = 0,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 10, height: 10)
+                .foregroundStyle(.tertiary)
+                .rotationEffect(.degrees(rotation))
+                .frame(width: 16, height: 16)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .help(help)
     }
 
     private var canPin: Bool {
@@ -338,7 +375,13 @@ struct TranslationResultView: View {
                 "选中文字，按下翻译快捷键"
             ))
         case .input:
-            inputBox
+            VStack(alignment: .leading, spacing: 8) {
+                inputBox
+                if let previous = viewModel.inputPrevious, previous.hasAnyContent {
+                    Divider().padding(.vertical, 1)
+                    previousTranslation(previous, descriptionExpanded: expanded)
+                }
+            }
         case .text(let segments):
             textContent(segments, descriptionExpanded: expanded)
         case .screenshotLoading(let message, _, _):
@@ -359,13 +402,51 @@ struct TranslationResultView: View {
     }
 
     @ViewBuilder
-    private func textContent(_ segments: TextSegments, descriptionExpanded expanded: Bool) -> some View {
-        if segments.bothDisabled {
-            emptyState
-        } else {
-            VStack(alignment: .leading, spacing: 8) {
+    private func textContent(
+        _ segments: TextSegments,
+        descriptionExpanded expanded: Bool,
+        interactive: Bool = true
+    ) -> some View {
+        let usedIDs = Set(segments.allSegments.map(\.id))
+        let switchTargets = interactive
+            ? viewModel.configuration.availableProviderKinds.filter { !usedIDs.contains($0) }
+            : []
+        let providerDisplayName: (TranslationProviderID) -> String = { id in
+            if id == .ai {
+                let model = viewModel.configuration.textModel
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                return model.isEmpty ? "AI" : model
+            }
+            return id.displayName
+        }
+        let controls = interactive
+            ? APISegmentsBlock.Controls(
+                collapsedIDs: collapsedProviders,
+                switchTargets: switchTargets,
+                onToggleCollapse: { id in toggleCollapse(id) },
+                onSwitch: { oldID, newID in
+                    collapsedProviders.remove(oldID)
+                    collapsedProviders.remove(newID)
+                    viewModel.switchProvider(from: oldID, to: newID)
+                },
+                onAddAll: { addAllServices(usedIDs: usedIDs) },
+                displayName: providerDisplayName
+            )
+            : nil
+
+        VStack(alignment: .leading, spacing: 8) {
+            if segments.sourceEditable {
+                sourceBlock(segments)
+            }
+            if segments.bothDisabled {
+                emptyState
+            } else {
                 if !segments.api.isEmpty {
-                    APISegmentsBlock(segments: segments.api) { id in
+                    APISegmentsBlock(
+                        segments: segments.api,
+                        controls: controls,
+                        mergeIdenticalResults: !interactive
+                    ) { id in
                         viewModel.disableAPIProvider(id)
                     }
                 }
@@ -383,11 +464,84 @@ struct TranslationResultView: View {
                         },
                         phoneticEnabled: viewModel.configuration.phoneticEnabled,
                         smartExplanationEnabled: viewModel.configuration.smartExplanationEnabled,
-                        sourceText: segments.source
+                        sourceText: segments.source,
+                        headerControls: interactive
+                            ? SegmentHeaderControls(
+                                collapsed: collapsedProviders.contains(.ai),
+                                switchTargets: switchTargets,
+                                onToggleCollapse: { toggleCollapse(.ai) },
+                                onSwitch: { newID in
+                                    collapsedProviders.remove(.ai)
+                                    collapsedProviders.remove(newID)
+                                    viewModel.switchProvider(from: .ai, to: newID)
+                                },
+                                onAddAll: { addAllServices(usedIDs: usedIDs) },
+                                displayName: providerDisplayName
+                            )
+                            : nil
                     )
                 }
             }
         }
+    }
+
+    /// The previous result rendered under the editor. The source block is
+    /// stripped — the editor above already shows that text — and the
+    /// per-result controls are disabled because the live state is `.input`.
+    private func previousTranslation(_ segments: TextSegments, descriptionExpanded expanded: Bool) -> some View {
+        textContent(segments.withoutSourceEditing, descriptionExpanded: expanded, interactive: false)
+    }
+
+    private func toggleCollapse(_ id: TranslationProviderID) {
+        if collapsedProviders.contains(id) {
+            collapsedProviders.remove(id)
+        } else {
+            collapsedProviders.insert(id)
+        }
+    }
+
+    /// "Call all other enabled services" under the switch menu's divider.
+    /// Existing rows stay put; every enabled provider not already on screen
+    /// is added and translated. New rows start expanded.
+    private func addAllServices(usedIDs: Set<TranslationProviderID>) {
+        let unused = viewModel.configuration.availableProviderKinds.filter { !usedIDs.contains($0) }
+        collapsedProviders.subtract(unused)
+        viewModel.addAllAvailableProviders()
+    }
+
+    /// Read-only original text shown above the result of a manual
+    /// translation. Clicking anywhere in the block reopens the editor with
+    /// this text; the pencil is the discoverable affordance.
+    private func sourceBlock(_ segments: TextSegments) -> some View {
+        Button {
+            onEditSource(segments.source, segments)
+        } label: {
+            HStack(alignment: .top, spacing: 6) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(L.pick("Original", "原文"))
+                        .font(.system(size: 10, weight: .semibold, design: .rounded))
+                        .foregroundStyle(.tertiary)
+                    Text(segments.source)
+                        .font(.system(size: 13))
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Image(systemName: "pencil")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(.tertiary)
+                    .padding(.top, 1)
+            }
+            .padding(8)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(Color.primary.opacity(0.04))
+            )
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(L.pick("Edit the original text", "编辑原文"))
     }
 
     private var emptyState: some View {
@@ -427,7 +581,7 @@ struct TranslationResultView: View {
 
     private var inputBox: some View {
         VStack(alignment: .leading, spacing: 6) {
-            TextEditor(text: $inputText)
+            TextEditor(text: $viewModel.inputDraft)
                 .font(.system(size: 14))
                 .scrollContentBackground(.hidden)
                 .focused($inputFocused)
@@ -439,7 +593,7 @@ struct TranslationResultView: View {
                         .fill(Color.primary.opacity(0.05))
                 )
                 .overlay(alignment: .topLeading) {
-                    if inputText.isEmpty {
+                    if viewModel.inputDraft.isEmpty {
                         Text(L.pick("Type or paste text to translate…", "输入或粘贴要翻译的文本…"))
                             .font(.system(size: 14))
                             .foregroundStyle(.tertiary)
@@ -456,13 +610,15 @@ struct TranslationResultView: View {
                     return .handled
                 }
             HStack {
-                Text(L.pick("Return to translate · Shift+Return for a new line", "回车翻译 · Shift+回车换行"))
+                Text(viewModel.inputPrevious == nil
+                     ? L.pick("Return to translate · Shift+Return for a new line", "回车翻译 · Shift+回车换行")
+                     : L.pick("Return to re-translate · Shift+Return for a new line", "回车重新翻译 · Shift+回车换行"))
                     .font(.system(size: 10))
                     .foregroundStyle(.tertiary)
                 Spacer()
                 Button(L.pick("Translate", "翻译")) { submitInput() }
                     .controlSize(.small)
-                    .disabled(inputText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(viewModel.inputDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .onAppear {
@@ -473,9 +629,9 @@ struct TranslationResultView: View {
     }
 
     private func submitInput() {
-        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let text = viewModel.inputDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        inputText = ""
+        viewModel.inputDraft = ""
         onSubmitInput(text)
     }
 
@@ -620,6 +776,7 @@ private struct AISegmentBlock: View {
     let phoneticEnabled: Bool
     let smartExplanationEnabled: Bool
     let sourceText: String
+    var headerControls: SegmentHeaderControls? = nil
 
     private let speaker = TooltipSpeaker()
 
@@ -628,31 +785,26 @@ private struct AISegmentBlock: View {
         // between the translation row and the description chevron that
         // made the section feel airier than the API rows above.
         VStack(alignment: .leading, spacing: 2) {
-            header
-            content
-            footer
-            if let description = segment.state.output.description,
-               !description.isEmpty,
-               smartExplanationEnabled {
-                CollapsibleSection(
-                    isExpanded: descriptionExpanded,
-                    animation: .spring(response: 0.28, dampingFraction: 0.88, blendDuration: 0.04)
-                ) {
-                    TooltipDescription(markdown: description)
+            SegmentHeader(
+                title: segment.modelHint ?? segment.displayName,
+                controls: headerControls
+            )
+            if headerControls?.collapsed != true {
+                content
+                footer
+                if let description = segment.state.output.description,
+                   !description.isEmpty,
+                   smartExplanationEnabled {
+                    CollapsibleSection(
+                        isExpanded: descriptionExpanded,
+                        animation: .spring(response: 0.28, dampingFraction: 0.88, blendDuration: 0.04)
+                    ) {
+                        TooltipDescription(markdown: description)
+                    }
                 }
             }
         }
-    }
-
-    private var header: some View {
-        HStack(spacing: 6) {
-            Text(segment.modelHint ?? segment.displayName)
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
-                .foregroundStyle(.tertiary)
-                .lineLimit(1)
-                .truncationMode(.middle)
-            Spacer()
-        }
+        .padding(.vertical, 2)
     }
 
     @ViewBuilder

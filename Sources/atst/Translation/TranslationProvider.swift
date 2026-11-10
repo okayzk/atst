@@ -9,6 +9,8 @@ enum TranslationProviderID: String, Codable, CaseIterable, Hashable {
     case google
     /// Built-in Microsoft Translator adapter (unofficial edge endpoint).
     case microsoft
+    /// Built-in DeepL adapter (unofficial iOS oneshot endpoint).
+    case deepl
 }
 
 /// Whether the provider is "AI" (rich, configurable, model-bound) or "API"
@@ -23,7 +25,19 @@ extension TranslationProviderID {
     var segmentKind: TranslationSegmentKind {
         switch self {
         case .ai: return .ai
-        case .google, .microsoft: return .api
+        case .google, .microsoft, .deepl: return .api
+        }
+    }
+
+    /// Service name for settings and the per-result switch menu. Result
+    /// headers keep using the provider's own `displayName` — the AI row
+    /// shows its model there instead of the generic "AI".
+    var displayName: String {
+        switch self {
+        case .ai: return "AI"
+        case .google: return "Google"
+        case .microsoft: return "Microsoft"
+        case .deepl: return "DeepL"
         }
     }
 }

@@ -26,14 +26,186 @@ struct CopyButton: View {
             }
         } label: {
             Image(systemName: copied ? "checkmark" : "doc.on.doc")
-                .font(.system(size: 10, weight: .semibold))
-                .frame(width: 20, height: 20)
+                .resizable()
+                .scaledToFit()
+                .frame(width: 10, height: 10)
+                .foregroundStyle(copied ? AnyShapeStyle(Color.green) : AnyShapeStyle(.tertiary))
+                .frame(width: 16, height: 16)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
-        .foregroundStyle(copied ? Color.green : .secondary)
         .help(copied ? L.pick("Copied", "已复制") : tooltip)
     }
+}
+
+// MARK: - Shared result header
+
+/// Controls shared by every result header, API or AI. One header view keeps
+/// the service label, switch menu, and collapse chevron identical across
+/// providers; only the content below the header is allowed to differ.
+struct SegmentHeaderControls {
+    var collapsed: Bool
+    var switchTargets: [TranslationProviderID]
+    var onToggleCollapse: (() -> Void)?
+    var onSwitch: ((TranslationProviderID) -> Void)?
+    var onAddAll: (() -> Void)?
+    /// AI uses its concrete model name here instead of the generic "AI".
+    var displayName: (TranslationProviderID) -> String = { $0.displayName }
+}
+
+struct SegmentHeader: View {
+    let title: String
+    let controls: SegmentHeaderControls?
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Text(title)
+                .font(.system(size: 10, weight: .semibold, design: .rounded))
+                .foregroundStyle(.tertiary)
+                .lineLimit(1)
+                .truncationMode(.middle)
+            Spacer(minLength: 4)
+            if let controls {
+                if !controls.switchTargets.isEmpty {
+                    SwitchMenuButton(
+                        switchTargets: controls.switchTargets,
+                        onSwitch: { target in controls.onSwitch?(target) },
+                        onAddAll: { controls.onAddAll?() },
+                        displayName: controls.displayName
+                    )
+                    .frame(width: 16, height: 16)
+                }
+                if let onToggleCollapse = controls.onToggleCollapse {
+                    Button(action: onToggleCollapse) {
+                        Image(systemName: controls.collapsed ? "chevron.right" : "chevron.down")
+                            .resizable()
+                            .scaledToFit()
+                            .frame(width: 10, height: 10)
+                            .foregroundStyle(.tertiary)
+                            .frame(width: 16, height: 16)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.borderless)
+                    .help(controls.collapsed
+                          ? L.pick("Expand result", "展开结果")
+                          : L.pick("Collapse result", "折叠结果"))
+                }
+            }
+        }
+        .frame(minHeight: 16)
+    }
+}
+
+/// AppKit-backed switch control. SwiftUI's `Menu` draws its label with the
+/// control tint (visibly brighter than the other tertiary header icons) and
+/// uses the small system menu font; an `NSButton` with `tertiaryLabelColor`
+/// and 14 pt menu items matches the result body and the rest of the header.
+struct SwitchMenuButton: NSViewRepresentable {
+    let switchTargets: [TranslationProviderID]
+    let onSwitch: (TranslationProviderID) -> Void
+    let onAddAll: () -> Void
+    var displayName: (TranslationProviderID) -> String = { $0.displayName }
+
+    func makeNSView(context: Context) -> NSButton {
+        let button = HeaderMenuButton()
+        button.isBordered = false
+        button.imagePosition = .imageOnly
+        button.focusRingType = .none
+        button.refusesFirstResponder = true
+        button.imageScaling = .scaleProportionallyDown
+        button.target = context.coordinator
+        button.action = #selector(Coordinator.showMenu(_:))
+        button.toolTip = L.pick("Switch or add services", "切换或添加翻译服务")
+        updateImage(button)
+        return button
+    }
+
+    func updateNSView(_ nsView: NSButton, context: Context) {
+        context.coordinator.parent = self
+        updateImage(nsView)
+    }
+
+    private func updateImage(_ button: NSButton) {
+        let configuration = NSImage.SymbolConfiguration(pointSize: 10, weight: .semibold)
+        let image = NSImage(
+            systemSymbolName: "arrow.left.arrow.right",
+            accessibilityDescription: nil
+        )?.withSymbolConfiguration(configuration)
+        image?.isTemplate = true
+        button.image = image
+        button.contentTintColor = .tertiaryLabelColor
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(self)
+    }
+
+    final class Coordinator: NSObject {
+        var parent: SwitchMenuButton
+
+        init(_ parent: SwitchMenuButton) {
+            self.parent = parent
+        }
+
+        @objc func showMenu(_ sender: NSButton) {
+            let menu = NSMenu()
+            menu.autoenablesItems = false
+            let baseFont = NSFont.systemFont(ofSize: 11, weight: .medium)
+            let font = baseFont.fontDescriptor.withDesign(.rounded)
+                .flatMap { NSFont(descriptor: $0, size: 11) } ?? baseFont
+            let textColor = NSColor.labelColor
+
+            for target in parent.switchTargets {
+                let title = parent.displayName(target)
+                let item = NSMenuItem(
+                    title: title,
+                    action: #selector(pickService(_:)),
+                    keyEquivalent: ""
+                )
+                item.target = self
+                item.representedObject = target.rawValue
+                item.attributedTitle = NSAttributedString(
+                    string: title,
+                    attributes: [.font: font, .foregroundColor: textColor]
+                )
+                menu.addItem(item)
+            }
+
+            menu.addItem(.separator())
+
+            let allTitle = L.pick("All others", "所有其他服务")
+            let allItem = NSMenuItem(
+                title: allTitle,
+                action: #selector(addAll(_:)),
+                keyEquivalent: ""
+            )
+            allItem.target = self
+            allItem.attributedTitle = NSAttributedString(
+                string: allTitle,
+                attributes: [.font: font, .foregroundColor: textColor]
+            )
+            menu.addItem(allItem)
+
+            let y = sender.isFlipped ? sender.bounds.height + 2 : -2
+            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: y), in: sender)
+        }
+
+        @objc private func pickService(_ sender: NSMenuItem) {
+            guard let raw = sender.representedObject as? String,
+                  let id = TranslationProviderID(rawValue: raw) else {
+                return
+            }
+            parent.onSwitch(id)
+        }
+
+        @objc private func addAll(_ sender: NSMenuItem) {
+            parent.onAddAll()
+        }
+    }
+}
+
+private final class HeaderMenuButton: NSButton {
+    override var intrinsicContentSize: NSSize { NSSize(width: 16, height: 16) }
 }
 
 // MARK: - API segment rows
@@ -44,9 +216,26 @@ struct CopyButton: View {
 struct APISegmentsBlock: View {
     let segments: [ProviderSegment]
     var isSnapshot = false
+    /// Interactive per-result controls, supplied by the live tooltip.
+    /// Pinned notes leave this nil and stay read-only.
+    var controls: Controls? = nil
+    /// The live tooltip renders one row per provider because each row owns
+    /// switch/collapse controls. Pinned notes keep the old identical-result
+    /// merge ("Google · Microsoft").
+    var mergeIdenticalResults = true
     /// Handler for the "Disable" button on a collapsed failure row. nil
     /// (pinned notes) hides the button.
     var onDisable: ((TranslationProviderID) -> Void)? = nil
+
+    struct Controls {
+        var collapsedIDs: Set<TranslationProviderID>
+        var switchTargets: [TranslationProviderID]
+        var onToggleCollapse: (TranslationProviderID) -> Void
+        var onSwitch: (TranslationProviderID, TranslationProviderID) -> Void
+        var onAddAll: () -> Void
+        /// AI is shown by its concrete model name in the switch menu.
+        var displayName: (TranslationProviderID) -> String = { $0.displayName }
+    }
 
     /// A provider that has failed this many times in a row stops rendering
     /// its full error and collapses to one line with a Disable button.
@@ -59,6 +248,8 @@ struct APISegmentsBlock: View {
                     title: row.title,
                     segment: row.segment,
                     isSnapshot: isSnapshot,
+                    controls: controls,
+                    collapsed: controls?.collapsedIDs.contains(row.segment.id) ?? false,
                     onDisable: onDisable
                 )
             }
@@ -74,12 +265,14 @@ struct APISegmentsBlock: View {
     /// Providers that returned the same text collapse into one row titled
     /// "Google · Microsoft" — two identical lines told the user nothing and
     /// cost a row of tooltip height. Only successes merge; pending and
-    /// failed segments always keep their own row.
+    /// failed segments always keep their own row. The live tooltip disables
+    /// this because each provider row needs its own controls.
     private var mergedRows: [Row] {
         var rows: [Row] = []
         var rowIndexByResult: [String: Int] = [:]
         for segment in segments {
-            if case .success(let output, _, _, _) = segment.state {
+            if mergeIdenticalResults,
+               case .success(let output, _, _, _) = segment.state {
                 let key = output.result.trimmingCharacters(in: .whitespacesAndNewlines)
                 if let index = rowIndexByResult[key] {
                     rows[index].title += " · " + segment.displayName
@@ -98,6 +291,8 @@ private struct APISegmentRow: View {
     let title: String
     let segment: ProviderSegment
     let isSnapshot: Bool
+    let controls: APISegmentsBlock.Controls?
+    let collapsed: Bool
     let onDisable: ((TranslationProviderID) -> Void)?
 
     var body: some View {
@@ -105,12 +300,28 @@ private struct APISegmentRow: View {
         // The translation row owns the trailing copy button so the icon
         // aligns with the text it copies — not with the label up top.
         VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
-                .foregroundStyle(.tertiary)
-            content
+            header
+            if !collapsed {
+                content
+            }
         }
         .padding(.vertical, 2)
+    }
+
+    private var header: some View {
+        SegmentHeader(
+            title: title,
+            controls: controls.map { block in
+                SegmentHeaderControls(
+                    collapsed: collapsed,
+                    switchTargets: block.switchTargets,
+                    onToggleCollapse: { block.onToggleCollapse(segment.id) },
+                    onSwitch: { target in block.onSwitch(segment.id, target) },
+                    onAddAll: block.onAddAll,
+                    displayName: block.displayName
+                )
+            }
+        )
     }
 
     @ViewBuilder

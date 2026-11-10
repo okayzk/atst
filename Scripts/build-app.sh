@@ -68,6 +68,17 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
   <string>AppIcon</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
+  <key>CFBundleURLTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleURLName</key>
+      <string>dev.local.atst.url</string>
+      <key>CFBundleURLSchemes</key>
+      <array>
+        <string>atst</string>
+      </array>
+    </dict>
+  </array>
   <key>CFBundleShortVersionString</key>
   <string>$VERSION_STRIPPED</string>
   <key>CFBundleVersion</key>

@@ -1,5 +1,6 @@
 import AppKit
 import ApplicationServices
+import Carbon
 import Combine
 import ServiceManagement
 
@@ -17,7 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.statusBarController.openSettings()
         },
         onSubmitInput: { [weak self] text in
-            self?.translateText(text, bypassCache: false)
+            self?.translateText(text, bypassCache: false, sourceEditable: true)
         }
     )
     private lazy var statusBarController: StatusBarController = StatusBarController(
@@ -34,6 +35,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var didLogMissingPermission = false
     private var currentTranslationTask: Task<Void, Never>?
     private var currentScreenshotTask: Task<Void, Never>?
+
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Custom URL schemes arrive as `GURL` Apple Events. Registering the
+        // handler explicitly is more reliable than relying on AppKit's
+        // default routing to `application(_:open:)`, and it also covers a
+        // cold launch: the event can arrive before didFinishLaunching.
+        NSAppleEventManager.shared().setEventHandler(
+            self,
+            andSelector: #selector(handleGetURLEvent(_:withReplyEvent:)),
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL)
+        )
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppLogger.log("atst launched pid=\(ProcessInfo.processInfo.processIdentifier) ax=\(PermissionChecker.isAccessibilityTrusted)")
@@ -120,6 +134,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     GoogleProvider.prewarm()
                 case .microsoft:
                     MicrosoftProvider.prewarm()
+                case .deepl:
+                    DeepLProvider.prewarm()
                 case .ai:
                     break
                 }
@@ -155,6 +171,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         AppLogger.log("atst terminating")
+        NSAppleEventManager.shared().removeEventHandler(
+            forEventClass: AEEventClass(kInternetEventClass),
+            andEventID: AEEventID(kAEGetURL)
+        )
         accessibilityWatchTimer?.invalidate()
         accessibilityWatchTimer = nil
         currentTranslationTask?.cancel()
@@ -362,22 +382,82 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Translate text we already hold — the header refresh (bypassing the
-    /// cache) and the manual-entry editor. The panel is already on screen
-    /// in both cases, so no pasteboard capture and no repositioning.
-    private func translateText(_ text: String, bypassCache: Bool) {
+    /// cache), the manual-entry editor, and external URL-scheme callers.
+    /// The first two already have the panel on screen; `showPanel` covers
+    /// the third by anchoring a fresh tooltip at the mouse. `sourceEditable`
+    /// defaults to the current state's flag so the header refresh keeps the
+    /// original visible for a manual translation and never turns a selection
+    /// result into an editable one.
+    private func translateText(
+        _ text: String,
+        bypassCache: Bool,
+        showPanel: Bool = false,
+        sourceEditable: Bool? = nil
+    ) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        AppLogger.log("translateText invoked length=\(trimmed.count) bypassCache=\(bypassCache)")
+        let editable = sourceEditable ?? viewModel.state.isSourceEditable
+        AppLogger.log("translateText invoked length=\(trimmed.count) bypassCache=\(bypassCache) showPanel=\(showPanel) editable=\(editable)")
         currentTranslationTask?.cancel()
         currentScreenshotTask?.cancel()
         let task = Task { [weak self] in
             guard let self else { return }
             TranslationStats.shared.recordTranslation()
             let selection = SelectedText(text: trimmed, anchorRect: nil)
-            self.viewModel.beginTextTranslation(source: trimmed)
-            await self.viewModel.translateSelection(selection, bypassCache: bypassCache)
+            self.viewModel.beginTextTranslation(source: trimmed, sourceEditable: editable)
+            if showPanel {
+                // External entry points (e.g. the PopClip extension) have no
+                // tooltip on screen yet; anchor it at the mouse, which is
+                // still next to the selection PopClip was showing over.
+                self.panelController.show(anchor: .mouse, activate: false)
+            }
+            await self.viewModel.translateSelection(
+                selection,
+                bypassCache: bypassCache,
+                sourceEditable: editable
+            )
         }
         currentTranslationTask = task
+    }
+
+    // MARK: - URL scheme (PopClip)
+
+    /// Entry point for `atst://` URLs. The bundled PopClip extension sends
+    /// `atst://translate?text=<percent-encoded selection>`; `URLComponents`
+    /// decodes it back to the original text, newlines included.
+    func application(_ application: NSApplication, open urls: [URL]) {
+        for url in urls where url.scheme?.lowercased() == "atst" {
+            handleAtstURL(url)
+        }
+    }
+
+    @objc private func handleGetURLEvent(
+        _ event: NSAppleEventDescriptor,
+        withReplyEvent replyEvent: NSAppleEventDescriptor
+    ) {
+        guard let raw = event.paramDescriptor(forKeyword: keyDirectObject)?.stringValue,
+              let url = URL(string: raw) else {
+            AppLogger.log("GURL event without a URL string")
+            return
+        }
+        guard url.scheme?.lowercased() == "atst" else { return }
+        handleAtstURL(url)
+    }
+
+    private func handleAtstURL(_ url: URL) {        guard let components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            AppLogger.log("atst url unparseable, ignoring")
+            return
+        }
+        let route = components.host
+            ?? components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        switch route {
+        case "translate":
+            let text = components.queryItems?.first(where: { $0.name == "text" })?.value ?? ""
+            AppLogger.log("atst://translate received length=\(text.count)")
+            translateText(text, bypassCache: false, showPanel: true, sourceEditable: false)
+        default:
+            AppLogger.log("unhandled atst url route=\(route)")
+        }
     }
 
     private func configureHotKeys(_ configuration: AppConfiguration) {

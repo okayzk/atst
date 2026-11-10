@@ -20,3 +20,6 @@ Resources/MenuBarIcon.png
 # Runtime logs / app caches (handy locally, never useful in version control)
 /tmp/atst.log
 /tmp/atst-last-screenshot.png
+
+# PopClip extension package (built by PopClip-plugin/package.sh)
+PopClip-plugin/atst.popclipextz

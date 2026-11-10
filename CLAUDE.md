@@ -38,31 +38,34 @@ There is **no test suite**. Verify changes by `swift build` (catches type errors
 
 The app has two top-level user actions that take very different code paths:
 
-1. **Selection translation** (`⌥D`) → `AppDelegate.translateSelection` → `viewModel.translateSelection` → fans out across every enabled `TranslationProvider` in parallel. The UI shows API rows (Google / Microsoft) stacked above an AI row.
+1. **Selection translation** (`⌥D`) → `AppDelegate.translateSelection` → `viewModel.translateSelection` → fans out across the configured default `TranslationProvider`s in parallel. The UI shows API rows (Google / Microsoft / DeepL) stacked above an AI row.
 
 2. **Screenshot translation** (`⌥S`) → `AppDelegate.translateScreenshot` → forks on `screenshotUseVisionOCR`:
    - **OCR ON (default)**: `VisionOCRService` → text → reuse `translateSelection` (so screenshots also get the multi-provider UI)
    - **OCR OFF, or OCR returned no text**: fall back to AI vision via `ScreenshotVisionService` (the legacy single-source path)
    - **AI vision unavailable**: surface `AppError.aiDisabledForVision` with a recovery hint
 
-Anything you change to selection translation automatically benefits screenshot-with-OCR. Don't try to unify the AI vision path into `TranslationProvider` — image input has fundamentally different message shape and constraints, and `Google` / `Microsoft` can't accept images anyway.
+Anything you change to selection translation automatically benefits screenshot-with-OCR. Don't try to unify the AI vision path into `TranslationProvider` — image input has fundamentally different message shape and constraints, and `Google` / `Microsoft` / `DeepL` can't accept images anyway.
 
-Two more entry points feed the same `translateSelection` pipeline:
+More entry points feed the same `translateSelection` pipeline:
 
-- **Manual input** — `TranslationState.input` renders a `TextEditor` in the tooltip; the panel is made key without activating the app, and its width follows the typed text with the normal `TooltipSizing` rule so the result doesn't jump. Reached from `⌥D` with nothing selected (`AppError.noSelectedText`); submission goes through `AppDelegate.translateText`, which the header refresh also uses (with `bypassCache: true`).
+- **PopClip** — the bundled extension under `PopClip-plugin/` opens `atst://translate?text=<selection>`; `AppDelegate`'s `GURL` Apple Event handler routes it to `translateText(..., showPanel: true)`. The scheme is declared in `Scripts/build-app.sh`'s Info.plist, so it only works from the packaged `.app`, not `swift run`.
+
+- **Manual input** — `TranslationState.input` renders a `TextEditor` in the tooltip; the panel is made key without activating the app, and its width follows the typed text with the normal `TooltipSizing` rule so the result doesn't jump. Reached from `⌥D` with nothing selected (`AppError.noSelectedText`); submission goes through `AppDelegate.translateText`, which the header refresh also uses (with `bypassCache: true`). Manual submissions set `TextSegments.sourceEditable`, so the result shows an **Original** block; clicking it reopens the editor via `showInput(prefill:previous:)` and renders the previous result underneath while the user edits. The draft and that snapshot live on the view model (`inputDraft` / `inputPrevious`), not in `@State`, so the editor can prefill and provider tasks can keep patching the previous result.
 - **Reverse translation** — `TranslatorViewModel.resolveLanguages` runs `LanguageDetector` (NaturalLanguage, on-device) on the source. If it's confidently (≥0.5) the configured target language, providers are built for `secondaryTargetLanguage` instead. Cache keys, the AI prompt and the header label all use the *effective* target, so never read `configuration.targetLanguage` directly inside the translation path.
 
-Line structure is preserved end to end: the AI prompt has an explicit keep-line-breaks rule plus a multi-paragraph example, Google and Microsoft send one array entry per non-blank line via `LineBatch`, and `VisionOCRService` merges soft-wrapped OCR lines into paragraphs (gap / indent / bullet heuristics) before handing text on.
+Line structure is preserved end to end: the AI prompt has an explicit keep-line-breaks rule plus a multi-paragraph example, Google / Microsoft / DeepL send one array entry per non-blank line via `LineBatch`, and `VisionOCRService` merges soft-wrapped OCR lines into paragraphs (gap / indent / bullet heuristics) before handing text on.
 
 ### `TranslationProvider` protocol
 
-In `Sources/atst/Translation/TranslationProvider.swift`. Three implementations:
+In `Sources/atst/Translation/TranslationProvider.swift`. Four implementations:
 
 - `OpenAIProvider` — OpenAI-compatible Chat Completions, SSE streaming, multimodal-aware (text path only; screenshot path lives separately). Owns the XML tag protocol (`<atst-result>` / `<atst-item>` / `<atst-phonetic>` / `<atst-desc>` / `<atst-translatable>`).
 - `GoogleProvider` — unofficial `translate-pa.googleapis.com` endpoint. Public API key baked in. HTML entity decoder required for the response.
-- `MicrosoftProvider` — unofficial Edge translator endpoint. JWT auth via `MicrosoftAuthToken` actor (cached, auto-refresh with 30s buffer, 401 retry).
+- `MicrosoftProvider` — unofficial Edge `edge.microsoft.com/translate/translatetext` endpoint (bare JSON string array body, no auth). The old JWT flow (`…/translate/auth` → `api-edge.cognitive.microsofttranslator.com`) was retired in 2026-07 and now answers 404 — don't restore it.
+- `DeepLProvider` — unofficial DeepL iOS "oneshot" endpoint (`oneshot-free.www.deepl.com/v1/translate`, `Authorization: None`). No key. The advertised iOS app version is resolved from the public iTunes lookup and cached by `DeepLAppVersionProvider`; a stale version gets HTTP 429. Anonymous requests cap at 1500 UTF-16 units, so long selections are split by line into multiple requests. The older `www2.deepl.com/jsonrpc` / `LMT_handle_texts` path no longer returns translations — don't go back to it.
 
-Google / Microsoft throw `AppError.providerUnavailable` / `providerRequestFailed(name:detail:)` so their rows never say "AI"; the `ai*` cases are for the OpenAI path only.
+Google / Microsoft / DeepL throw `AppError.providerUnavailable` / `providerRequestFailed(name:detail:)` so their rows never say "AI"; the `ai*` cases are for the OpenAI path only.
 
 All providers return `AsyncThrowingStream<TranslationProviderEmission, Error>` so streaming (AI) and one-shot (API) flows share the same surface. `TranslatorViewModel` doesn't know which kind it's driving.
 
@@ -70,9 +73,17 @@ All providers return `AsyncThrowingStream<TranslationProviderEmission, Error>` s
 
 `TranslationState.text(TextSegments)` is the main translation state. `TextSegments` carries an array of `ProviderSegment` for API rows + an optional `ProviderSegment` for AI, plus `sourceLanguage` / `targetLanguage` for the header label. Each segment has its own lifecycle (`loading` / `streaming` / `success` / `failure`) and is updated independently as its provider's stream emits. `ProviderSegment.consecutiveFailures` (in-memory, per app run) drives the collapsed "failed N times · Disable" row once it reaches `APISegmentsBlock.collapseAfterFailures`. Screenshot AI vision uses its own state cases (`screenshotLoading` / `screenshotStreaming` / `screenshotSuccess`) — they're not crammed into `text(...)`.
 
-Row rendering that both the live tooltip and pinned notes need lives in `SegmentRows.swift` (`CopyButton`, `APISegmentsBlock`). `APISegmentsBlock` also merges successful providers with identical text into one "Google · Microsoft" row — do that kind of presentation logic there, not in the view model.
+Row rendering that both the live tooltip and pinned notes need lives in `SegmentRows.swift` (`CopyButton`, `APISegmentsBlock`). `APISegmentsBlock` can merge successful providers with identical text into one "Google · Microsoft · DeepL" row — do that kind of presentation logic there, not in the view model. The interactive live tooltip and pinned notes pass `mergeIdenticalResults: false` so every provider row owns its switch/collapse controls; only the read-only previous-result block shown while editing still merges.
 
 When adding a provider: implement `TranslationProvider`, surface it in `TranslatorViewModel.makeProvider(for:)`, add an `APIProviderEntry` default in `AppConfiguration.defaultAPIProviders`.
+
+### Default services and per-result controls
+
+`AppConfiguration.defaultProviderKinds` intersects the saved `defaultProviderIDs` with `availableProviderKinds` (enabled API providers + AI) and is what `buildEnabledProviders` / `makePlaceholderSegments` use. The rest of the enabled services stay available for the live tooltip's per-result **switch menu**: it lists `availableProviderKinds` minus the IDs already on screen, and choosing one calls `TranslatorViewModel.switchProvider(from:to:)`. That cancels the old provider's task (tasks are keyed by `TranslationProviderID` in `activeTextSegmentTasks`), seeds the replacement from cache when possible, and leaves every other row alone.
+
+Per-result **collapse** is purely view state (`@State collapsedProviders` in `TranslationResultView`): it never cancels a request or re-translates. It resets when `translationGeneration` bumps (a new translation starts), not on segment updates. The live tooltip and pinned notes both pass `mergeIdenticalResults: false` to `APISegmentsBlock` so each API provider gets its own header/controls; the read-only previous-result block shown while editing keeps the merge.
+
+`SegmentHeader` in `SegmentRows.swift` is the single header used by both API rows and `AISegmentBlock`. Put label fonts, icon sizes, and spacing there — AI rich text / explanations may only change the content below the header, not its geometry. The switch menu's divider action calls `TranslatorViewModel.addAllAvailableProviders()`: it keeps the rows already on screen and adds every available provider that isn't displayed, using cache where possible. Like a single switch, this is temporary for the current translation.
 
 ### Cache schema (v2)
 
@@ -97,14 +108,14 @@ The header strip is draggable — `WindowDragHandle` (in `TooltipShared.swift`) 
 
 `TooltipPanel.canBecomeKey` returns `allowsKeyStatus`, which `FloatingPanelController` sets only while the manual-input editor is showing and clears as soon as the state moves on (re-ordering the panel to hand key status back). Keep it that way: a key window renders Liquid Glass in its clear "active" form, so a key tooltip looks see-through — the first trial round reported exactly that after a header drag. It's a `.nonactivatingPanel`, and the `⌥D` path shows it with `orderFrontRegardless` so the user's app keeps focus. Because the panel is not key after `⌥D`, **Esc is handled in the global CGEventTap** (`GlobalHotKeyMonitor.onEscape` → `FloatingPanelController.closeIfVisible`), not by a local key monitor.
 
-Pinned notes (`PinnedNoteView`) are independent windows constructed from a `PinnedNoteSnapshot` of the live tooltip's segments. They use a separate `PinnedNoteController` and are draggable via the whole window background (different from the live tooltip — pinned notes are meant to be repositioned freely).
+Pinned notes are **full live sessions**, not snapshots. `PinnedNoteController` owns a detached `TranslatorViewModel` (created by `makeDetachedSession()`) and the same `TranslationResultView`, so provider switch/collapse/source editing work exactly like the live tooltip. Unpinning calls `FloatingPanelController.unpin`, which adopts the note's state into the live view model, restarts unfinished providers, closes the note and shows the live tooltip at the note's position. The note's × closes it without adopting. Notes drag from the shared header (not the whole background) because their content is interactive.
 
 ### Settings shell
 
 `MenuBarSettingsView` is a thin three-page shell (header / footer / routing / save / reset) driven by a `[SettingsRoute]` stack:
 - **General** (root, `SettingsGeneralPage.swift`) — permissions, target + secondary language, UI language, appearance, launch at login, pinned-note behaviour, provider toggles, hotkeys, OCR languages, cache; stats sparkline in `SettingsStatsSection.swift`
-- **AI Translation** subpage — OpenAI-compatible config (incl. Timeout, which only applies to the AI request) + prompts nav
-- **API Translation** subpage — built-in providers + future custom-HTTP placeholder
+- **AI Translation** subpage — OpenAI-compatible config (incl. Timeout, which only applies to the AI request) + prompts nav. Its **Test** row probes the draft AI config with a tiny request and shows a `ProviderHealthIndicator` dot.
+- **API Translation** subpage — built-in providers + future custom-HTTP placeholder. Provider names carry a reachability dot; `ProviderHealthMonitor` probes Google / Microsoft / DeepL with a tiny "ping" when the page appears (60 s cache). AI is manual-only so a page visit never spends tokens.
 - **Translation Prompts** sub-subpage — system + smart-explanation prompt editors
 
 When extending: prefer adding a row inside the existing General sections rather than creating a fourth page; the panel width is fixed and pages should feel like a single tool. Reset restores `defaultConfig` wholesale except the AI endpoint fields (URL, key, models).

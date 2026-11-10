@@ -12,7 +12,7 @@
 [![Version](https://img.shields.io/badge/version-v0.4.0-blue)](https://github.com/itaober/atst/releases/latest)
 [![License](https://img.shields.io/badge/license-Apache--2.0-orange)](./LICENSE)
 
-Hit a hotkey, get a translation. Works **out of the box** with built-in Google + Microsoft adapters, and unlocks AI-grade dictionary / explanation when you bring your own model.
+Hit a hotkey, get a translation. Works **out of the box** with built-in Google + Microsoft + DeepL adapters, and unlocks AI-grade dictionary / explanation when you bring your own model.
 
 [简体中文](./README.zh-CN.md) · [Install](#install) · [Usage](#usage) · [Features](#features)
 
@@ -24,16 +24,16 @@ Hit a hotkey, get a translation. Works **out of the box** with built-in Google +
 
 - ⚡ **One-hotkey translation** — press `⌥D` on any selected text, anywhere in macOS, and a tooltip appears in ~200ms. `Esc` dismisses it
 - 🔁 **Reverse translation** — text that's already in your target language is translated into your secondary language instead (Chinese ⇄ English out of the box)
-- ⌨️ **Type to translate** — press `⌥D` with nothing selected and a text box appears; type or paste
+- ⌨️ **Type to translate** — press `⌥D` with nothing selected and a text box appears; type or paste. The original stays above the result, and clicking it reopens the editor for another pass
 - 🖼️ **Screenshot translation** — press `⌥S`, drag a region, get the translation. On-device Vision OCR by default (fast + private + free); falls back to AI vision if you've configured one
-- 🔀 **Multi-source side-by-side** — Google and Microsoft results stack above your AI result; identical results merge into one row
+- 🔀 **Multi-source side-by-side** — Google, Microsoft and DeepL results stack above your AI result, each with its own switch and collapse controls
 - 🧠 **AI dictionary mode** — for single words, AI providers can return multiple meanings, IPA phonetics, and a short usage explanation
-- 📌 **Pin as note** — freeze a translation into a floating sticky note for later reference
+- 📌 **Pin as note** — detach a translation into a floating sticky note that keeps the per-result controls and can be unpinned back into the tooltip
 - 💾 **Local cache** — repeat lookups hit a JSON cache, scoped per provider; configurable TTL and size cap
 - 🫧 **Native Liquid Glass** — translation tooltips and pinned notes use Liquid Glass on macOS 26+ when available, with an automatic fallback on older systems
 - 🪶 **Tiny footprint** — ~2 MB DMG, ~4 MB installed. Pure Swift/AppKit, no Electron, no Web view
 - 🌐 **Bilingual UI** — auto English / Chinese based on system language, with a manual override
-- 🆓 **Zero-config friendly** — works on a fresh install with no API keys (Google + Microsoft adapters); add an OpenAI-compatible endpoint when you want richer output
+- 🆓 **Zero-config friendly** — works on a fresh install with no API keys (Google + Microsoft + DeepL adapters); add an OpenAI-compatible endpoint when you want richer output
 
 ---
 
@@ -104,12 +104,24 @@ Both translation hotkeys are reconfigurable in **Settings → Hotkeys**.
 
 The header shows the detected source language and the target (e.g. `English → 简体中文`). Below it you'll see one or two sections:
 
-- **Top — API results** (Google, Microsoft): fast and free, no API key required. When both return the same text they share one row
+- **Top — API results** (Google, Microsoft, DeepL): fast and free, no API key required. Each row can be switched to another enabled service or collapsed from its header
 - **Bottom — AI result** (if enabled): richer output with multiple meanings, IPA phonetics, and explanations for technical terms
 
-Each row has its own copy button. The whole tooltip is **draggable from its header** if you want to move it out of the way; `Esc` or a click outside dismisses it. Click the pin (📌) in the header to freeze it into a sticky note.
+Each row has its own copy button. The whole tooltip is **draggable from its header** if you want to move it out of the way; `Esc` or a click outside dismisses it. Click the pin (📌) in the header to detach it into a sticky note. The note has the same switch, collapse and source-edit controls; its pin-slash button unpins it back into a normal tooltip, while × removes it.
+
+Every result header also has a **switch button** (choose another enabled service that isn't already on screen) and a **collapse chevron**. Collapsing only hides that row — it never re-runs a translation — and editing the original and translating again expands everything. The switch menu's item below the divider keeps the current row and calls every other enabled service at once.
 
 If a provider fails three times in a row (blocked network, dead endpoint) its row collapses to a single line with a **Disable** button, so it stops shouting on every translation.
+
+### PopClip extension
+
+The repo ships a [PopClip](https://www.popclip.app/) extension in [`PopClip-plugin/`](PopClip-plugin/): select text, click **atst** in the PopClip bar, and the translation tooltip opens at the pointer.
+
+1. Install the bundled atst `.app` (the `atst://` URL scheme is declared in the app bundle, so `swift run` does not register it).
+2. Double-click `PopClip-plugin/atst.popclipext` and confirm the install. For an unsigned local build, run `defaults write com.pilotmoon.popclip LoadUnsignedExtensions -bool YES` first if PopClip refuses it.
+3. Make sure at least one translation provider is enabled in atst.
+
+The extension only opens `atst://translate?text=<selection>`; atst reuses the same selection-translation pipeline (providers, cache, reverse translation). See [`PopClip-plugin/README.md`](PopClip-plugin/README.md) for packaging and icon regeneration.
 
 ### Reverse translation
 
@@ -121,8 +133,12 @@ Click the **`atst`** label in your menu bar to open the settings panel.
 
 The General page holds the target and secondary languages, launch-at-login, hotkeys, screenshot OCR and cache options, plus two translator toggles:
 
-- ☑️ **API Translation** (on by default) — Google + Microsoft. Zero config.
+- ☑️ **API Translation** (on by default) — Google + Microsoft + DeepL. Zero config.
+
+Each provider name in the API subpage has a reachability dot, checked automatically when the page opens. In the AI subpage, the **Test** button below Timeout sends a tiny request with a dot next to its label.
 - ☐ **AI Translation** (off by default) — OpenAI-compatible endpoint. Configure base URL + key + model in the AI subpage.
+
+Below them, **Default translation services** picks which of the enabled services run on every new translation. Select one or several; anything left unchecked stays one click away in each result's switch menu.
 
 #### AI configuration (optional)
 
@@ -132,7 +148,7 @@ Inside **AI Translation** subpage:
 - **API Key** — kept locally in `~/Library/Preferences/dev.local.atst.plist`
 - **Translation Model** — model name to use for selection translation (e.g. `gpt-4o-mini`, `qwen2.5:7b`)
 - **Screenshot Model** — vision-capable model used when **Vision OCR** is OFF (e.g. `gpt-4o`, `claude-3.5-sonnet`)
-- **Timeout** — idle limit per AI request (Google / Microsoft use a fixed 15 s)
+- **Timeout** — idle limit per AI request (Google / Microsoft use a fixed 15 s, DeepL 20 s)
 - **Phonetic** — append IPA to single-word lookups
 - **Smart Explanation** — add a dictionary-style explanation block (idioms, proper-noun definitions, etc.)
 - **Translation Prompts** — fully editable system + smart-explanation prompts
@@ -156,6 +172,7 @@ Add or remove recognition languages from the chip row below. Default: Simplified
 |---|---|---|---|---|---|---|
 | Google (built-in) | ❌ | ✅ | — | ❌ | ❌ | ❌ |
 | Microsoft (built-in) | ❌ | ✅ | — | ❌ | ❌ | ❌ |
+| DeepL (built-in, unofficial) | ❌ | ✅ (1500 chars/request) | — | ❌ | ❌ | ❌ |
 | OpenAI-compatible | ✅ | depends | ✅ | ✅ | ✅ | ✅ |
 
 ### Other goodies
@@ -180,7 +197,7 @@ Add or remove recognition languages from the chip row below. Default: Simplified
 ## Privacy
 
 - atst is a **local app**. No telemetry, no analytics, no crash reporters.
-- Translation providers (Google, Microsoft, your AI endpoint) receive only the text you trigger a translation for. Language detection for the tooltip header and reverse translation runs on-device.
+- Translation providers (Google, Microsoft, DeepL, your AI endpoint) receive only the text you trigger a translation for. Language detection for the tooltip header and reverse translation runs on-device.
 - Network activity beyond translations: one request to `api.github.com` per launch (at most every 4 h) to check for a newer release, and a small connection-warming request to each enabled provider when you press a hotkey's modifier key.
 - Cache lives at `~/Library/Caches/dev.local.atst/translations.json`. Settings live at `~/Library/Preferences/dev.local.atst.plist`. Delete either at any time.
 - A diagnostic log is written to `/tmp/atst.log`; it includes the first characters of translated text. Delete it whenever you like.

@@ -28,6 +28,44 @@ struct SettingsSection<Content: View>: View {
     }
 }
 
+/// Small reachability dot used next to service names and the AI Test
+/// button. Green = reachable, red = unavailable, orange = probing, gray =
+/// not checked yet.
+struct ProviderHealthIndicator: View {
+    let health: ProviderHealth
+    var size: CGFloat = 6
+
+    var body: some View {
+        Circle()
+            .fill(color)
+            .frame(width: size, height: size)
+            .help(helpText)
+            .accessibilityLabel(Text(helpText))
+    }
+
+    private var color: Color {
+        switch health {
+        case .unknown: return Color.secondary.opacity(0.35)
+        case .checking: return .orange
+        case .reachable: return .green
+        case .unreachable: return .red
+        }
+    }
+
+    private var helpText: String {
+        switch health {
+        case .unknown:
+            return L.pick("Not checked yet", "尚未检测")
+        case .checking:
+            return L.pick("Checking…", "检测中…")
+        case .reachable:
+            return L.pick("Reachable", "可达")
+        case .unreachable(let detail):
+            return "\(L.pick("Unreachable", "不可达")): \(detail)"
+        }
+    }
+}
+
 /// Two-line toggle row used for feature switches (audio playback, smart
 /// explanation, etc).
 struct SettingsToggleRow: View {

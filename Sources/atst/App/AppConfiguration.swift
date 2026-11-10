@@ -38,6 +38,13 @@ struct AppConfiguration: Codable, Equatable {
     /// Ordered list of built-in API providers + their enable state. UI
     /// surfaces this as a draggable list in the API subpage.
     var apiProviders: [APIProviderEntry]
+    /// Providers called on every new translation. This is a subset of the
+    /// services that are available (top-level toggles + per-provider
+    /// enablement); any other enabled service can still be swapped into a
+    /// single result from its header. If nothing here matches an available
+    /// service, all available services are used so a translation never
+    /// silently produces zero rows.
+    var defaultProviderIDs: [String]
 
     // MARK: - AI provider config
     var baseURL: String
@@ -89,8 +96,19 @@ struct AppConfiguration: Codable, Equatable {
 
     static let defaultAPIProviders: [APIProviderEntry] = [
         .init(kind: .google, enabled: true),
-        .init(kind: .microsoft, enabled: true)
+        .init(kind: .microsoft, enabled: true),
+        .init(kind: .deepl, enabled: true)
     ]
+
+    /// Every built-in service is a default until the user narrows the set.
+    /// Keeping the IDs (rather than only the currently-enabled ones) means a
+    /// provider enabled later joins the defaults without needing a migration.
+    static let defaultProviderIDs: [String] = [
+        TranslationProviderID.google,
+        .microsoft,
+        .deepl,
+        .ai
+    ].map(\.rawValue)
 
     /// Default screenshot OCR languages — Simplified Chinese, English,
     /// Japanese. Covers the bulk of typical user input; settings lets the
@@ -160,11 +178,13 @@ struct AppConfiguration: Codable, Equatable {
         screenshotUseVisionOCR: Bool = true,
         ocrLanguages: [String] = AppConfiguration.defaultOCRLanguages,
         pinnedNoteFollowsAcrossSpaces: Bool = false,
-        launchAtLogin: Bool = false
+        launchAtLogin: Bool = false,
+        defaultProviderIDs: [String] = AppConfiguration.defaultProviderIDs
     ) {
         self.aiEnabled = aiEnabled
         self.apiEnabled = apiEnabled
         self.apiProviders = apiProviders
+        self.defaultProviderIDs = defaultProviderIDs
         self.baseURL = baseURL
         self.apiKey = apiKey
         self.textModel = textModel
@@ -206,6 +226,8 @@ struct AppConfiguration: Codable, Equatable {
         for fallback in defaults.apiProviders where !knownIDs.contains(fallback.id) {
             apiProviders.append(fallback)
         }
+        defaultProviderIDs = try container.decodeIfPresent([String].self, forKey: .defaultProviderIDs)
+            ?? defaults.defaultProviderIDs
 
         baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL) ?? defaults.baseURL
         apiKey = try container.decodeIfPresent(String.self, forKey: .apiKey) ?? defaults.apiKey
@@ -276,6 +298,25 @@ struct AppConfiguration: Codable, Equatable {
             guard entry.enabled, let kind = entry.kind else { return nil }
             return kind
         }
+    }
+
+    /// Every service the user could call right now: enabled API providers
+    /// in their configured order, then AI when its top-level switch is on.
+    var availableProviderKinds: [TranslationProviderID] {
+        var kinds = enabledAPIProviderKinds
+        if aiEnabled {
+            kinds.append(.ai)
+        }
+        return kinds
+    }
+
+    /// Services invoked by a new translation. Intersects the saved default
+    /// selection with what is currently available; falls back to everything
+    /// available when the selection is empty or entirely unavailable.
+    var defaultProviderKinds: [TranslationProviderID] {
+        let available = availableProviderKinds
+        let selected = available.filter { defaultProviderIDs.contains($0.rawValue) }
+        return selected.isEmpty ? available : selected
     }
 
     private static func loadSavedConfig() -> AppConfiguration? {

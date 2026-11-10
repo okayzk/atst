@@ -6,7 +6,16 @@ All notable changes are recorded here. Each version section is what gets pasted 
 
 ## Unreleased
 
-(no changes yet)
+- **PopClip extension** — select text, click **atst** in the PopClip bar, and the tooltip translates it in place; the app now registers an `atst://translate?text=…` URL scheme so external launchers can hand text to the existing translation pipeline (source in `PopClip-plugin/`)
+- **Manual input keeps the original** — after Return the source stays visible above the result; click it to reopen the editor (with the previous result still shown underneath) and translate again
+- **DeepL** — a third built-in API provider using DeepL's anonymous iOS oneshot endpoint (no key required); results join Google / Microsoft, long selections are split around the 1500-character anonymous limit, and the advertised client version is refreshed from the App Store
+- **Choose default services** — General → Default translation services selects which enabled services run on each new translation (multiple allowed); unchecked ones stay available in the per-result switch menu
+- **Per-result switch and collapse** — every result header can swap that row to another enabled service (unused ones only) or hide it temporarily; collapsing is visual only, and editing the original expands everything again. The live tooltip now keeps API rows separate so each row owns its controls (pinned notes still merge identical results)
+- Result headers now share one layout across API and AI (same label, icon sizes and spacing); the switch menu gained a divider and **All others**, which keeps the current row and adds every other enabled provider
+- **Pinned notes are live sessions** — pinning now detaches the translation into an independent session that uses the same result view, so service switching, collapsing and original-text editing keep working; the note header gained an unpin action that returns it to the normal tooltip (× still closes it)
+- **Microsoft translation works again** — the Edge JWT auth endpoint was retired (now 404); migrated to the unauthenticated `edge.microsoft.com/translate/translatetext` endpoint
+- **Service reachability** — API provider names in settings carry a dot checked automatically when the page opens; the AI page has a Test button with a dot next to its label
+- The switch menu shows the concrete AI model name instead of "AI"; result header icons and the copy button now share one size and tint, and pin/unpin swaps windows without a fade flash
 
 ## v0.4.0
 
