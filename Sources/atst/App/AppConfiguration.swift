@@ -80,6 +80,10 @@ struct AppConfiguration: Codable, Equatable {
     var phoneticEnabled: Bool
     var smartExplanationEnabled: Bool
     var smartExplanationExpandedByDefault: Bool
+    /// When on, the AI result renders above the API rows instead of below
+    /// them. Multi-service results read better with the strongest answer
+    /// first; off by default keeps the existing row order.
+    var aiResultFirst: Bool
 
     // MARK: - Screenshot
     /// When on (default), screenshot translation runs macOS Vision OCR
@@ -160,6 +164,7 @@ struct AppConfiguration: Codable, Equatable {
         phoneticEnabled: false,
         smartExplanationEnabled: false,
         smartExplanationExpandedByDefault: false,
+        aiResultFirst: false,
         appearanceMode: .auto,
         uiLanguage: .auto,
         cacheEnabled: true,
@@ -196,6 +201,7 @@ struct AppConfiguration: Codable, Equatable {
         phoneticEnabled: Bool = false,
         smartExplanationEnabled: Bool = false,
         smartExplanationExpandedByDefault: Bool = false,
+        aiResultFirst: Bool = false,
         appearanceMode: AppearanceMode = .auto,
         uiLanguage: UILanguage = .auto,
         cacheEnabled: Bool = true,
@@ -230,6 +236,7 @@ struct AppConfiguration: Codable, Equatable {
         self.phoneticEnabled = phoneticEnabled
         self.smartExplanationEnabled = smartExplanationEnabled
         self.smartExplanationExpandedByDefault = smartExplanationExpandedByDefault
+        self.aiResultFirst = aiResultFirst
         self.appearanceMode = appearanceMode
         self.uiLanguage = uiLanguage
         self.cacheEnabled = cacheEnabled
@@ -286,6 +293,7 @@ struct AppConfiguration: Codable, Equatable {
         phoneticEnabled = try container.decodeIfPresent(Bool.self, forKey: .phoneticEnabled) ?? defaults.phoneticEnabled
         smartExplanationEnabled = try container.decodeIfPresent(Bool.self, forKey: .smartExplanationEnabled) ?? defaults.smartExplanationEnabled
         smartExplanationExpandedByDefault = try container.decodeIfPresent(Bool.self, forKey: .smartExplanationExpandedByDefault) ?? defaults.smartExplanationExpandedByDefault
+        aiResultFirst = try container.decodeIfPresent(Bool.self, forKey: .aiResultFirst) ?? defaults.aiResultFirst
         appearanceMode = try container.decodeIfPresent(AppearanceMode.self, forKey: .appearanceMode) ?? defaults.appearanceMode
         uiLanguage = try container.decodeIfPresent(UILanguage.self, forKey: .uiLanguage) ?? defaults.uiLanguage
         cacheEnabled = try container.decodeIfPresent(Bool.self, forKey: .cacheEnabled) ?? defaults.cacheEnabled

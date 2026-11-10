@@ -140,7 +140,21 @@ struct TranslationResultView: View {
         if case .input = viewModel.state {
             return TooltipSizing.preferredWidth(forSource: viewModel.inputDraft)
         }
-        return TooltipSizing.preferredWidth(forSource: viewModel.state.sourceText)
+        return TooltipSizing.preferredWidth(
+            forSource: viewModel.state.sourceText,
+            hasDictionary: hasDictionarySegment
+        )
+    }
+
+    /// True while a dictionary card is loading or showing. Loading counts
+    /// too: the panel must not resize when the lookup lands.
+    private var hasDictionarySegment: Bool {
+        guard case .text(let segments) = viewModel.state,
+              let dictionary = segments.dictionary else { return false }
+        switch dictionary.state {
+        case .loading, .success:
+            return true
+        }
     }
 
     // MARK: - Header
@@ -152,14 +166,6 @@ struct TranslationResultView: View {
                 .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
-
-            if let dot = statusDot {
-                Circle()
-                    .fill(dot.color)
-                    .frame(width: 6, height: 6)
-                    .help(dot.tooltipText)
-                    .accessibilityLabel(Text(dot.tooltipText))
-            }
 
             Spacer(minLength: 8)
 
@@ -286,86 +292,6 @@ struct TranslationResultView: View {
         return false
     }
 
-    // MARK: - Header status dot
-
-    /// Multi-source-aware status dot:
-    ///   green — at least one segment succeeded, none failed
-    ///   yellow — mixed (some success, some failure)
-    ///   red   — all segments failed
-    ///   gray  — at least one terminal segment but all "untranslatable"
-    ///   nil   — still loading / streaming / idle
-    private enum StatusDot {
-        case success
-        case untranslatable
-        case partial
-        case failure
-
-        var color: Color {
-            switch self {
-            case .success: return .green
-            case .partial: return .orange
-            case .untranslatable: return .gray
-            case .failure: return .red
-            }
-        }
-
-        var tooltipText: String {
-            switch self {
-            case .success:
-                return L.pick("Translated", "翻译成功")
-            case .partial:
-                return L.pick("Partial success — some providers failed", "部分成功：有 provider 失败")
-            case .untranslatable:
-                return L.pick(
-                    "No standard translation (proper noun / already target language / unrecognised input)",
-                    "无标准译文（专有名词 / 已是目标语言 / 无法识别的输入）"
-                )
-            case .failure:
-                return L.pick("Translation failed", "翻译失败")
-            }
-        }
-    }
-
-    private var statusDot: StatusDot? {
-        switch viewModel.state {
-        case .text(let segments):
-            return statusDot(for: segments)
-        case .screenshotSuccess(let output, _, _):
-            return output.untranslatable ? .untranslatable : .success
-        case .failure:
-            return .failure
-        case .idle, .input, .screenshotLoading, .screenshotStreaming:
-            return nil
-        }
-    }
-
-    private func statusDot(for segments: TextSegments) -> StatusDot? {
-        if segments.bothDisabled { return nil }
-        var successes = 0
-        var failures = 0
-        var untranslatables = 0
-        var pending = 0
-        for segment in segments.allSegments {
-            switch segment.state {
-            case .success(let output, _, _, _):
-                if output.untranslatable {
-                    untranslatables += 1
-                } else {
-                    successes += 1
-                }
-            case .failure:
-                failures += 1
-            case .loading, .streaming:
-                pending += 1
-            }
-        }
-        if pending > 0, successes == 0, failures == 0, untranslatables == 0 { return nil }
-        if failures > 0, successes == 0, untranslatables == 0 { return .failure }
-        if successes == 0, untranslatables > 0, failures == 0 { return .untranslatable }
-        if failures > 0 { return .partial }
-        return .success
-    }
-
     // MARK: - Body content
 
     @ViewBuilder
@@ -451,60 +377,106 @@ struct TranslationResultView: View {
                 dictionaryLoadingRow
             }
             if let dictionaryEntry {
+                // The card no longer carries its own surface, so it needs a
+                // little more air before the provider rows below it.
                 DictionaryCard(entry: dictionaryEntry)
+                    .padding(.bottom, 6)
             }
             if segments.bothDisabled {
                 if dictionaryEntry == nil {
                     emptyState
                 }
-            } else {
+            } else if viewModel.configuration.aiResultFirst {
+                aiBlock(
+                    segments,
+                    descriptionExpanded: expanded,
+                    switchTargets: switchTargets,
+                    providerDisplayName: providerDisplayName,
+                    usedIDs: usedIDs,
+                    interactive: interactive
+                )
                 if !segments.api.isEmpty {
-                    APISegmentsBlock(
-                        segments: segments.api,
-                        controls: controls,
-                        mergeIdenticalResults: !interactive
-                    ) { id in
-                        viewModel.disableAPIProvider(id)
-                    }
+                    apiBlock(segments, controls: controls, interactive: interactive)
+                        .padding(.top, 6)
                 }
-                if !segments.api.isEmpty && segments.ai != nil {
-                    Divider().padding(.vertical, 1)
-                }
-                if let ai = segments.ai {
-                    AISegmentBlock(
-                        segment: ai,
+            } else {
+                apiBlock(segments, controls: controls, interactive: interactive)
+                if segments.ai != nil {
+                    aiBlock(
+                        segments,
                         descriptionExpanded: expanded,
-                        toggleExpand: {
-                            withAnimation(.spring(response: 0.28, dampingFraction: 0.88, blendDuration: 0.04)) {
-                                descriptionExpanded.toggle()
-                            }
-                        },
-                        phoneticEnabled: viewModel.configuration.phoneticEnabled,
-                        smartExplanationEnabled: viewModel.configuration.smartExplanationEnabled,
-                        sourceText: segments.source,
-                        headerControls: interactive
-                            ? SegmentHeaderControls(
-                                collapsed: collapsedProviders.contains(.ai),
-                                switchTargets: switchTargets,
-                                onToggleCollapse: { toggleCollapse(.ai) },
-                                onSwitch: { newID in
-                                    collapsedProviders.remove(.ai)
-                                    collapsedProviders.remove(newID)
-                                    viewModel.switchProvider(from: .ai, to: newID)
-                                },
-                                onAddAll: { addAllServices(usedIDs: usedIDs) },
-                                displayName: providerDisplayName
-                            )
-                            : nil
+                        switchTargets: switchTargets,
+                        providerDisplayName: providerDisplayName,
+                        usedIDs: usedIDs,
+                        interactive: interactive
                     )
+                    .padding(.top, 6)
                 }
             }
         }
     }
 
+    @ViewBuilder
+    private func apiBlock(
+        _ segments: TextSegments,
+        controls: APISegmentsBlock.Controls?,
+        interactive: Bool
+    ) -> some View {
+        if !segments.api.isEmpty {
+            APISegmentsBlock(
+                segments: segments.api,
+                controls: controls,
+                mergeIdenticalResults: !interactive
+            ) { id in
+                viewModel.disableAPIProvider(id)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func aiBlock(
+        _ segments: TextSegments,
+        descriptionExpanded expanded: Bool,
+        switchTargets: [TranslationProviderID],
+        providerDisplayName: @escaping (TranslationProviderID) -> String,
+        usedIDs: Set<TranslationProviderID>,
+        interactive: Bool
+    ) -> some View {
+        if let ai = segments.ai {
+            AISegmentBlock(
+                segment: ai,
+                descriptionExpanded: expanded,
+                toggleExpand: {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.88, blendDuration: 0.04)) {
+                        descriptionExpanded.toggle()
+                    }
+                },
+                phoneticEnabled: viewModel.configuration.phoneticEnabled,
+                smartExplanationEnabled: viewModel.configuration.smartExplanationEnabled,
+                sourceText: segments.source,
+                headerControls: interactive
+                    ? SegmentHeaderControls(
+                        collapsed: collapsedProviders.contains(.ai),
+                        switchTargets: switchTargets,
+                        onToggleCollapse: { toggleCollapse(.ai) },
+                        onSwitch: { newID in
+                            collapsedProviders.remove(.ai)
+                            collapsedProviders.remove(newID)
+                            viewModel.switchProvider(from: .ai, to: newID)
+                        },
+                        onAddAll: { addAllServices(usedIDs: usedIDs) },
+                        displayName: providerDisplayName
+                    )
+                    : nil
+            )
+        }
+    }
+
     /// Compact placeholder shown while a dictionary lookup is in flight.
     /// In dictionary-first mode it is the only content until the lookup
-    /// resolves; in parallel mode it sits above the provider rows.
+    /// resolves; in parallel mode it sits above the provider rows. It has
+    /// no card surface of its own — the finished card doesn't either, so
+    /// the row must not flash a rounded block before the entry lands.
     private var dictionaryLoadingRow: some View {
         HStack(spacing: 7) {
             ProgressView()
@@ -512,15 +484,10 @@ struct TranslationResultView: View {
                 .scaleEffect(0.7)
                 .frame(height: 14)
             Text(L.pick("Looking up dictionary…", "查词典…"))
-                .font(.system(size: 11))
+                .font(.system(size: 12))
                 .foregroundStyle(.secondary)
             Spacer(minLength: 4)
         }
-        .padding(8)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.primary.opacity(0.04))
-        )
     }
 
     /// The previous result rendered under the editor. The source block is
@@ -719,7 +686,7 @@ struct TranslationResultView: View {
         let displayText = isPlaceholder ? L.pick("Translating…", "翻译中…") : text
         return HStack(alignment: .top, spacing: 7) {
             Text(displayText)
-                .font(.system(size: 14, weight: .regular))
+                .font(.system(size: 15, weight: .regular))
                 .foregroundStyle(.primary)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
@@ -733,10 +700,10 @@ struct TranslationResultView: View {
     private func multiMeaningRow(_ text: String) -> some View {
         HStack(alignment: .top, spacing: 7) {
             Text("•")
-                .font(.system(size: 13, weight: .regular))
+                .font(.system(size: 14, weight: .regular))
                 .foregroundStyle(.secondary)
             Text(text)
-                .font(.system(size: 14, weight: .regular))
+                .font(.system(size: 15, weight: .regular))
                 .foregroundStyle(.primary)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
@@ -748,7 +715,7 @@ struct TranslationResultView: View {
 
     private func placeholderText(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 14, weight: .regular))
+            .font(.system(size: 15, weight: .regular))
             .foregroundStyle(.primary)
             .textSelection(.enabled)
             .fixedSize(horizontal: false, vertical: true)
@@ -817,12 +784,12 @@ private struct AISegmentBlock: View {
     var headerControls: SegmentHeaderControls? = nil
 
     private let speaker = TooltipSpeaker()
+    @State private var hovering = false
 
     var body: some View {
-        // Tight 2pt outer spacing — the previous 4pt left a visible gap
-        // between the translation row and the description chevron that
-        // made the section feel airier than the API rows above.
-        VStack(alignment: .leading, spacing: 2) {
+        // 5pt keeps the service header and its translation reading as one
+        // block while still leaving the rule room to breathe.
+        VStack(alignment: .leading, spacing: 5) {
             SegmentHeader(
                 title: segment.modelHint ?? segment.displayName,
                 controls: headerControls
@@ -842,7 +809,7 @@ private struct AISegmentBlock: View {
                 }
             }
         }
-        .padding(.vertical, 2)
+        .onHover { hovering = $0 }
     }
 
     @ViewBuilder
@@ -915,12 +882,12 @@ private struct AISegmentBlock: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 Text(text)
-                    .font(.system(size: 14, weight: .regular))
+                    .font(.system(size: 15, weight: .regular))
                     .foregroundStyle(.primary)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
                     .frame(maxWidth: .infinity, alignment: .leading)
-                CopyButton(text: text, tooltip: L.pick("Copy translation", "复制译文"))
+                CopyButton(text: text, tooltip: L.pick("Copy translation", "复制译文"), isVisible: hovering)
             }
         }
     }
@@ -928,22 +895,22 @@ private struct AISegmentBlock: View {
     private func multiMeaningRow(_ text: String) -> some View {
         HStack(alignment: .top, spacing: 7) {
             Text("•")
-                .font(.system(size: 13, weight: .regular))
+                .font(.system(size: 14, weight: .regular))
                 .foregroundStyle(.secondary)
             Text(text)
-                .font(.system(size: 14, weight: .regular))
+                .font(.system(size: 15, weight: .regular))
                 .foregroundStyle(.primary)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            CopyButton(text: text)
+            CopyButton(text: text, isVisible: hovering)
         }
         .padding(.vertical, 1)
     }
 
     private func placeholderText(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 14, weight: .regular))
+            .font(.system(size: 15, weight: .regular))
             .foregroundStyle(.primary)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)

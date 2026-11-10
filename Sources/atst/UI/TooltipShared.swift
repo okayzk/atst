@@ -241,12 +241,20 @@ struct TooltipDescription: View {
 enum TooltipSizing {
     static let narrowWidth: CGFloat = 320
     static let wideWidth: CGFloat = 480
+    /// Dictionary entries carry a longer typographic line (21pt headword,
+    /// 14pt body) than a plain translation, so the narrow 320pt column
+    /// wraps them twice as often as it should. This width only applies
+    /// while a dictionary segment is on screen.
+    static let dictionaryWidth: CGFloat = 400
 
     /// Long-source threshold: anything beyond ~one English sentence (or
     /// containing a newline) reads better in the wider column. Below this
     /// the narrow width gives single words / short phrases the tighter,
     /// more iconic look they deserve.
-    static func preferredWidth(forSource source: String) -> CGFloat {
+    static func preferredWidth(forSource source: String, hasDictionary: Bool = false) -> CGFloat {
+        if hasDictionary {
+            return dictionaryWidth
+        }
         let trimmed = source.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed.count > 80 || trimmed.contains("\n") {
             return wideWidth

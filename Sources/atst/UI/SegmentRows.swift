@@ -89,6 +89,10 @@ struct ResultIconButton: View {
 struct CopyButton: View {
     let text: String
     var tooltip: String = L.pick("Copy this", "复制这一条")
+    /// Result rows keep the icon invisible until the pointer is over the
+    /// row, so a stack of translations reads as text rather than as a
+    /// column of identical buttons. The copied checkmark always shows.
+    var isVisible: Bool = true
 
     @State private var copied = false
     @State private var resetTask: Task<Void, Never>?
@@ -109,6 +113,7 @@ struct CopyButton: View {
                 systemName: copied ? "checkmark" : "doc.on.doc",
                 tint: copied ? AnyShapeStyle(Color.green) : AnyShapeStyle(ResultIconStyle.tint)
             )
+            .opacity(isVisible || copied ? 1 : 0)
         }
         .buttonStyle(.borderless)
         .help(copied ? L.pick("Copied", "已复制") : tooltip)
@@ -135,13 +140,25 @@ struct SegmentHeader: View {
     let controls: SegmentHeaderControls?
 
     var body: some View {
-        HStack(spacing: 4) {
+        HStack(spacing: 8) {
+            // 服务名 + 渐隐细线：一行就是一个可扫读的分区，多服务结果
+            // 之间靠这条线分隔，而不是靠一眼看不出的间距差。
             Text(title)
-                .font(.system(size: 10, weight: .semibold, design: .rounded))
-                .foregroundStyle(.tertiary)
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(.secondary)
                 .lineLimit(1)
                 .truncationMode(.middle)
-            Spacer(minLength: 4)
+
+            Rectangle()
+                .fill(
+                    LinearGradient(
+                        colors: [Color.primary.opacity(0.18), Color.primary.opacity(0.02)],
+                        startPoint: .leading,
+                        endPoint: .trailing
+                    )
+                )
+                .frame(height: 0.5)
+
             if let controls {
                 if !controls.switchTargets.isEmpty {
                     SwitchMenuButton(
@@ -309,7 +326,7 @@ struct APISegmentsBlock: View {
     static let collapseAfterFailures = 3
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 16) {
             ForEach(mergedRows, id: \.id) { row in
                 APISegmentRow(
                     title: row.title,
@@ -362,17 +379,20 @@ private struct APISegmentRow: View {
     let collapsed: Bool
     let onDisable: ((TranslationProviderID) -> Void)?
 
+    @State private var hovering = false
+
     var body: some View {
-        // Provider name sits as a small label *above* the translation row(s).
-        // The translation row owns the trailing copy button so the icon
-        // aligns with the text it copies — not with the label up top.
-        VStack(alignment: .leading, spacing: 2) {
+        // Provider name sits as its own header row with a hairline rule, so
+        // several providers stack as scannable sections instead of one run
+        // of text. The translation row owns the trailing copy button, which
+        // stays hidden until the pointer is over this provider's block.
+        VStack(alignment: .leading, spacing: 5) {
             header
             if !collapsed {
                 content
             }
         }
-        .padding(.vertical, 2)
+        .onHover { hovering = $0 }
     }
 
     private var header: some View {
@@ -473,7 +493,7 @@ private struct APISegmentRow: View {
         if items.count <= 1 {
             translationRow(text: items[0], showBullet: false)
         } else {
-            VStack(alignment: .leading, spacing: 2) {
+            VStack(alignment: .leading, spacing: 4) {
                 ForEach(Array(items.enumerated()), id: \.offset) { _, item in
                     translationRow(text: item, showBullet: true)
                 }
@@ -485,16 +505,16 @@ private struct APISegmentRow: View {
         HStack(alignment: .top, spacing: 7) {
             if showBullet {
                 Text("•")
-                    .font(.system(size: 13, weight: .regular))
+                    .font(.system(size: 14, weight: .regular))
                     .foregroundStyle(.secondary)
             }
             Text(text)
-                .font(.system(size: 13, weight: .regular))
+                .font(.system(size: 14, weight: .regular))
                 .foregroundStyle(.primary)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
-            CopyButton(text: text)
+            CopyButton(text: text, isVisible: hovering)
         }
     }
 }
