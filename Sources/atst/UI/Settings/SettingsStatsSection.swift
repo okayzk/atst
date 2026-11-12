@@ -6,35 +6,44 @@ import SwiftUI
 struct SettingsStatsSection: View {
     @ObservedObject var cache: TranslationCache
     @ObservedObject var stats: TranslationStats
+    /// When true, renders bare rows for use inside an advanced card instead
+    /// of wrapping itself in another `SettingsSection`.
+    var embedded: Bool = false
     /// Bound to whichever day in the sparkline the cursor is over via
     /// `chartXSelection`. nil = no hover, hides the inline annotation.
     @State private var sparklineSelectedDate: Date?
 
-    var body: some View { statsSection }
-
-    private var statsSection: some View {
-        SettingsSection(title: L.pick("Stats", "统计")) {
-            HStack(spacing: 12) {
-                statBlock(label: L.pick("AI", "AI"), value: "\(cache.aiCount)")
-                Divider().frame(height: 28)
-                statBlock(label: L.pick("API", "API"), value: "\(cache.apiCount)")
-                Divider().frame(height: 28)
-                cacheSizeStatBlock
-                Spacer(minLength: 6)
-                statsSparkline
-                Spacer(minLength: 6)
-                Button(L.pick("Clear", "清空")) {
-                    cache.clear()
-                    stats.clear()
-                    DictionaryCache.shared.clear()
-                }
-                .controlSize(.small)
-                .fixedSize()
-                .disabled(cache.aiCount == 0 && cache.apiCount == 0)
+    var body: some View {
+        if embedded {
+            statsContent
+        } else {
+            SettingsSection(title: L.pick("Stats", "统计")) {
+                statsContent
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
         }
+    }
+
+    private var statsContent: some View {
+        HStack(spacing: 12) {
+            statBlock(label: L.pick("AI", "AI"), value: "\(cache.aiCount)")
+            Divider().frame(height: 28)
+            statBlock(label: L.pick("API", "API"), value: "\(cache.apiCount)")
+            Divider().frame(height: 28)
+            cacheSizeStatBlock
+            Spacer(minLength: 6)
+            statsSparkline
+            Spacer(minLength: 6)
+            Button(L.pick("Clear", "清空")) {
+                cache.clear()
+                stats.clear()
+                DictionaryCache.shared.clear()
+            }
+            .controlSize(.small)
+            .fixedSize()
+            .disabled(cache.aiCount == 0 && cache.apiCount == 0)
+        }
+        .padding(.horizontal, SettingsStyle.rowHorizontalPadding)
+        .padding(.vertical, SettingsStyle.rowVerticalPadding)
     }
 
     /// 14-day sparkline with two stacked series:
@@ -155,10 +164,10 @@ struct SettingsStatsSection: View {
     private func statBlock(label: String, value: String) -> some View {
         VStack(alignment: .leading, spacing: 1) {
             Text(value)
-                .font(.system(size: 13, weight: .semibold, design: .rounded))
+                .font(.system(size: 14, weight: .semibold, design: .rounded))
                 .foregroundStyle(.primary)
             Text(label)
-                .font(.system(size: 9, weight: .medium))
+                .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(.tertiary)
         }
     }
@@ -177,16 +186,16 @@ struct SettingsStatsSection: View {
         return VStack(alignment: .leading, spacing: 1) {
             HStack(alignment: .firstTextBaseline, spacing: 2) {
                 Text(number)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
                     .foregroundStyle(.primary)
                 if !unit.isEmpty {
                     Text(unit)
-                        .font(.system(size: 9, weight: .medium))
+                        .font(.system(size: 10, weight: .medium))
                         .foregroundStyle(.secondary)
                 }
             }
             Text(L.pick("Cache", "缓存"))
-                .font(.system(size: 9, weight: .medium))
+                .font(.system(size: 10, weight: .medium))
                 .foregroundStyle(.tertiary)
         }
         .fixedSize()

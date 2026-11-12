@@ -1,5 +1,15 @@
 import AppKit
+import Combine
 import SwiftUI
+
+/// Session-only state shared between the settings window's pin button and
+/// the AppKit panel that hosts it. Pinning raises the panel above other
+/// windows and stops the outside-click dismissal, so settings stay visible
+/// while the user works in another app.
+@MainActor
+final class SettingsWindowState: ObservableObject {
+    @Published var isPinned = false
+}
 
 @MainActor
 final class StatusBarController: NSObject {
@@ -7,6 +17,8 @@ final class StatusBarController: NSObject {
     private let settingsStore: SettingsStore
     private let updateChecker: UpdateChecker
     private let onQuit: () -> Void
+    let settingsWindowState = SettingsWindowState()
+    private var cancellables = Set<AnyCancellable>()
 
     private var panel: NSPanel?
     private var globalMonitor: Any?
@@ -41,6 +53,13 @@ final class StatusBarController: NSObject {
             button.action = #selector(toggle)
             button.toolTip = Branding.appName
         }
+
+        settingsWindowState.$isPinned
+            .removeDuplicates()
+            .sink { [weak self] pinned in
+                Task { @MainActor in self?.applyPin(pinned) }
+            }
+            .store(in: &cancellables)
     }
 
     @objc private func toggle() {
@@ -88,9 +107,14 @@ final class StatusBarController: NSObject {
         syncPanelSize(panel)
 
         place(panel, near: statusItemAnchorRect())
+        panel.level = settingsWindowState.isPinned ? .floating : .normal
         NSApp.activate(ignoringOtherApps: true)
         panel.makeKeyAndOrderFront(nil)
-        startOutsideClickMonitoring()
+        if settingsWindowState.isPinned {
+            stopOutsideClickMonitoring()
+        } else {
+            startOutsideClickMonitoring()
+        }
     }
 
     /// Position `panel` so the whole window stays inside the visible frame.
@@ -193,6 +217,19 @@ final class StatusBarController: NSObject {
         panel?.orderOut(nil)
     }
 
+    /// Apply the pin state to the live panel. Pinned settings float above
+    /// other windows and ignore outside clicks; unpinned settings behave
+    /// like the original menu-bar popover.
+    private func applyPin(_ pinned: Bool) {
+        guard let panel else { return }
+        panel.level = pinned ? .floating : .normal
+        if pinned {
+            stopOutsideClickMonitoring()
+        } else if panel.isVisible {
+            startOutsideClickMonitoring()
+        }
+    }
+
     private func startOutsideClickMonitoring() {
         stopOutsideClickMonitoring()
         globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
@@ -222,6 +259,7 @@ final class StatusBarController: NSObject {
         let content = MenuBarSettingsView(
             settingsStore: settingsStore,
             updateChecker: updateChecker,
+            windowState: settingsWindowState,
             onQuit: onQuit
         )
         let host = NSHostingController(rootView: content)
@@ -240,7 +278,7 @@ final class StatusBarController: NSObject {
         panel.hasShadow = true
         panel.isFloatingPanel = true
         panel.becomesKeyOnlyIfNeeded = true
-        panel.level = .floating
+        panel.level = settingsWindowState.isPinned ? .floating : .normal
         panel.collectionBehavior = [.fullScreenAuxiliary]
         panel.contentViewController = host
         panel.contentView?.wantsLayer = true

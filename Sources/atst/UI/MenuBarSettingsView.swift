@@ -5,7 +5,6 @@ private enum SettingsRoute: Hashable {
     case aiPage
     case apiPage
     case dictionaryPage
-    case translationPrompts
 }
 
 /// Top-level settings shell. The root page is now the "General" / common
@@ -18,6 +17,7 @@ struct MenuBarSettingsView: View {
     @ObservedObject var updateChecker: UpdateChecker
     @ObservedObject var cache: TranslationCache = .shared
     @ObservedObject var stats: TranslationStats = .shared
+    @ObservedObject var windowState: SettingsWindowState
     var onQuit: () -> Void
 
     @State private var draft: AppConfiguration
@@ -25,15 +25,17 @@ struct MenuBarSettingsView: View {
     @State private var saveDebounceTask: Task<Void, Never>?
     @State private var routeStack: [SettingsRoute] = []
 
-    private let panelWidth: CGFloat = 360
+    private let panelWidth: CGFloat = 380
 
     init(
         settingsStore: SettingsStore,
         updateChecker: UpdateChecker,
+        windowState: SettingsWindowState,
         onQuit: @escaping () -> Void
     ) {
         self.settingsStore = settingsStore
         self.updateChecker = updateChecker
+        self.windowState = windowState
         self.onQuit = onQuit
         _draft = State(initialValue: settingsStore.configuration)
     }
@@ -59,15 +61,12 @@ struct MenuBarSettingsView: View {
                     SettingsAIPage(
                         draft: $draft,
                         save: save,
-                        debouncedSave: debouncedSave,
-                        openPromptsPage: { routeStack.append(.translationPrompts) }
+                        debouncedSave: debouncedSave
                     )
                 case .apiPage:
                     SettingsAPIPage(draft: $draft, save: save)
                 case .dictionaryPage:
                     SettingsDictionaryPage(draft: $draft, save: save)
-                case .translationPrompts:
-                    SettingsPromptsPage(draft: $draft, save: save)
                 }
             }
             Divider()
@@ -118,7 +117,7 @@ struct MenuBarSettingsView: View {
                 rootTitleLabel
             } else {
                 Text(headerTitle)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
             }
@@ -128,11 +127,25 @@ struct MenuBarSettingsView: View {
             if routeStack.isEmpty, updateChecker.hasUpdate, let latest = updateChecker.latest {
                 updateAvailableBadge(latest)
             }
+            Button {
+                windowState.isPinned.toggle()
+            } label: {
+                Image(systemName: windowState.isPinned ? "pin.slash" : "pin")
+                    .font(.system(size: 13, weight: .medium))
+                    .rotationEffect(.degrees(windowState.isPinned ? 0 : -30))
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(windowState.isPinned ? Color.accentColor : .secondary)
+            .help(windowState.isPinned
+                  ? L.pick("Unpin settings", "取消置顶")
+                  : L.pick("Keep settings on top", "置顶设置窗口"))
 
             if routeStack.isEmpty {
                 Button(action: onQuit) {
                     Image(systemName: "power")
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 13, weight: .medium))
                         .frame(width: 22, height: 22)
                         .contentShape(Rectangle())
                 }
@@ -142,7 +155,7 @@ struct MenuBarSettingsView: View {
             }
         }
         .padding(.horizontal, 14)
-        .padding(.vertical, 10)
+        .padding(.vertical, 12)
         // The header strip doubles as a window drag handle. Buttons and the
         // title button sit above this AppKit background, so they keep their
         // own clicks while empty header space moves the panel.
@@ -165,7 +178,7 @@ struct MenuBarSettingsView: View {
             // to the bigger app name, which looks lopsided.
             HStack(alignment: .firstTextBaseline, spacing: 6) {
                 Text(Branding.appName)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 16, weight: .bold))
                     .foregroundStyle(.primary)
                 Text(Branding.versionDisplay)
                     .font(.system(size: 11, weight: .medium, design: .monospaced))
@@ -192,7 +205,7 @@ struct MenuBarSettingsView: View {
                     .fill(Color.orange)
                     .frame(width: 5, height: 5)
                 Text(L.pick("Update \(latest.tagName)", "新版 \(latest.tagName)"))
-                    .font(.system(size: 10, weight: .semibold, design: .rounded))
+                    .font(.system(size: 11, weight: .semibold, design: .rounded))
                     .foregroundStyle(Color.orange)
             }
             .padding(.horizontal, 7)
@@ -216,7 +229,6 @@ struct MenuBarSettingsView: View {
         case .aiPage: return L.pick("AI Translation", "AI 翻译")
         case .apiPage: return L.pick("API Translation", "API 翻译")
         case .dictionaryPage: return L.pick("Dictionary", "查词")
-        case .translationPrompts: return L.pick("Translation Prompts", "翻译提示词")
         }
     }
 
@@ -227,7 +239,7 @@ struct MenuBarSettingsView: View {
                     .font(.system(size: 10))
                     .foregroundStyle(.orange)
                 Text(saveError)
-                    .font(.system(size: 10))
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -236,11 +248,11 @@ struct MenuBarSettingsView: View {
                     "Last saved \(Self.lastSavedFormatter.string(from: lastSavedAt))",
                     "最后保存于 \(Self.lastSavedFormatter.string(from: lastSavedAt))"
                 ))
-                .font(.system(size: 10))
+                .font(.system(size: 11))
                 .foregroundStyle(.secondary)
             } else {
                 Text(L.pick("Not saved yet", "尚未保存"))
-                    .font(.system(size: 10))
+                    .font(.system(size: 11))
                     .foregroundStyle(.tertiary)
             }
             Spacer()

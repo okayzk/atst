@@ -636,9 +636,13 @@ private final class PinnedNoteController {
     func owns(_ window: NSWindow?) -> Bool { window === panel }
 
     func show(at topLeft: NSPoint, animated: Bool = true) {
-        panel.setFrameTopLeftPoint(topLeft)
+        // Resolve the note's real content size *before* anchoring it, then
+        // keep the top-left corner fixed across every later resize. Doing
+        // it the other way around let `setContentSize` grow the window
+        // upward from its bottom-left origin, which is the pin "jump".
         updateMaxContentHeight()
         ensureSized()
+        panel.setFrameTopLeftPoint(topLeft)
         panel.alphaValue = animated ? 0 : 1
         panel.orderFrontRegardless()
         guard animated else { return }
@@ -691,7 +695,9 @@ private final class PinnedNoteController {
             return
         }
         lastAppliedContentSize = newSize
+        let topLeft = NSPoint(x: panel.frame.minX, y: panel.frame.maxY)
         panel.setContentSize(newSize)
+        panel.setFrameTopLeftPoint(topLeft)
         updateMaxContentHeight()
     }
 

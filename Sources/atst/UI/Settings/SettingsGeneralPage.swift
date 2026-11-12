@@ -33,21 +33,15 @@ struct SettingsGeneralPage: View {
     @State private var permissionPollTask: Task<Void, Never>?
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                permissionsSection
-                generalSection
-                translatorNavSection
-                defaultServicesSection
-                hotkeysSection
-                screenshotSection
-                cacheSection
-                SettingsStatsSection(cache: cache, stats: stats)
-            }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
+        SettingsPage(maxHeight: 540) {
+            languageSection
+            translatorNavSection
+            serviceSection
+            hotkeysSection
+            generalSection
+            advancedSection
+            permissionsSection
         }
-        .frame(maxHeight: 540)
         .onAppear {
             refreshPermissionStatus()
             startPermissionPolling()
@@ -59,28 +53,69 @@ struct SettingsGeneralPage: View {
         }
     }
 
-    // MARK: - Screenshot section
+    // MARK: - Language section
 
-    /// Screenshot-specific config: Vision OCR toggle + the recognition
-    /// language set used when OCR mode is on. Sits between the hotkeys
-    /// section and the cache section because it's a screenshot-flow
-    /// concern but unrelated to either translation provider.
-    private var screenshotSection: some View {
-        SettingsSection(title: L.pick("Screenshot", "截图")) {
+    private var languageSection: some View {
+        SettingsSection(title: L.pick("Language", "语言")) {
+            targetLanguageRow
+            SettingsRowDivider()
+            secondaryTargetLanguageRow
+        }
+    }
+
+    // MARK: - Advanced section
+
+    private var advancedSection: some View {
+        SettingsAdvancedSection(title: L.pick("Advanced", "高级")) {
+            advancedGroupTitle(L.pick("Screenshot", "截图"))
             SettingsToggleRow(
                 title: L.pick("Use Vision OCR", "使用 Vision OCR"),
-                subtitle: L.pick(
-                    "Recognise text locally, then translate. Falls back to AI vision when no text is found.",
-                    "先在本地识别文字，再进行翻译。识别不到文字时使用 AI 视觉。"
-                ),
                 isOn: $draft.screenshotUseVisionOCR,
                 onChange: save
             )
-            Divider().padding(.horizontal, 10)
+            SettingsRowDivider()
             ocrLanguagesRow
-                .opacity(draft.screenshotUseVisionOCR ? 1 : 0.4)
+                .opacity(draft.screenshotUseVisionOCR ? 1 : SettingsStyle.disabledOpacity)
                 .disabled(!draft.screenshotUseVisionOCR)
+
+            advancedGroupTitle(L.pick("Cache", "缓存"))
+            SettingsToggleRow(
+                title: L.pick("Enable cache", "开启缓存"),
+                isOn: $draft.cacheEnabled,
+                onChange: save
+            )
+            SettingsRowDivider()
+            cacheNumberRow(
+                title: L.pick("Days to keep", "保留天数"),
+                subtitle: "",
+                value: $draft.cacheTTLDays,
+                range: 1...365
+            )
+            .opacity(draft.cacheEnabled ? 1 : SettingsStyle.disabledOpacity)
+            .disabled(!draft.cacheEnabled)
+            SettingsRowDivider()
+            cacheNumberRow(
+                title: L.pick("Max entries", "缓存上限"),
+                subtitle: "",
+                value: $draft.cacheMaxEntries,
+                range: 100...50000
+            )
+            .opacity(draft.cacheEnabled ? 1 : SettingsStyle.disabledOpacity)
+            .disabled(!draft.cacheEnabled)
+
+            advancedGroupTitle(L.pick("Stats", "统计"))
+            SettingsStatsSection(cache: cache, stats: stats, embedded: true)
         }
+    }
+
+    private func advancedGroupTitle(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, SettingsStyle.rowHorizontalPadding)
+            .padding(.top, 12)
+            .padding(.bottom, 2)
     }
 
     /// Recognition-language picker. Selected languages render as removable
@@ -92,21 +127,15 @@ struct SettingsGeneralPage: View {
             HStack(spacing: 10) {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(L.pick("Recognition languages", "识别语言"))
-                        .font(.system(size: 12, weight: .medium))
+                        .font(SettingsStyle.rowTitleFont)
                         .foregroundStyle(.primary)
-                    Text(L.pick(
-                        "Tried in order. Add the languages you often capture.",
-                        "按顺序识别。添加你常截到的语言。"
-                    ))
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
                 }
                 Spacer(minLength: 4)
             }
             languageChipsRow
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.horizontal, SettingsStyle.rowHorizontalPadding)
+        .padding(.vertical, SettingsStyle.rowVerticalPadding)
     }
 
     private var languageChipsRow: some View {
@@ -190,14 +219,14 @@ struct SettingsGeneralPage: View {
                 isOn: $draft.apiEnabled,
                 onTap: openAPIPage
             )
-            Divider().padding(.horizontal, 10)
+            SettingsRowDivider()
             translatorNavRow(
                 title: L.pick("AI Translation", "AI 翻译"),
                 subtitle: aiSubtitle,
                 isOn: $draft.aiEnabled,
                 onTap: openAIPage
             )
-            Divider().padding(.horizontal, 10)
+            SettingsRowDivider()
             translatorNavRow(
                 title: L.pick("Dictionary", "查词"),
                 subtitle: dictionarySubtitle,
@@ -240,49 +269,49 @@ struct SettingsGeneralPage: View {
         return enabled.joined(separator: " · ")
     }
 
-    // MARK: - Default services section
+    // MARK: - Translation services section
 
-    /// Which of the enabled services run on a new translation. The rest
-    /// stay available for the per-result switch menu in the tooltip.
-    private var defaultServicesSection: some View {
-        SettingsSection(title: L.pick("Default translation services", "默认翻译服务")) {
+    /// The single place that controls which services run by default, the
+    /// order their rows appear in, and whether the AI result sits above the
+    /// API rows. Provider enablement still lives on the API subpage; this
+    /// list only shows services that are currently available.
+    private var serviceSection: some View {
+        SettingsSection(title: L.pick("Translation services", "翻译服务")) {
             let available = draft.availableProviderKinds
             if available.isEmpty {
                 Text(L.pick(
                     "Enable API or AI translation first.",
                     "请先启用 API 或 AI 翻译。"
                 ))
-                .font(.system(size: 10))
+                .font(SettingsStyle.rowSubtitleFont)
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 8)
+                .padding(.horizontal, SettingsStyle.rowHorizontalPadding)
+                .padding(.vertical, SettingsStyle.rowVerticalPadding)
             } else {
                 ForEach(Array(available.enumerated()), id: \.element) { index, kind in
-                    defaultServiceRow(kind: kind, available: available)
+                    serviceRow(kind: kind, available: available)
                     if index < available.count - 1 {
-                        Divider().padding(.horizontal, 10)
+                        SettingsRowDivider()
                     }
                 }
+                SettingsRowDivider()
+                SettingsToggleRow(
+                    title: L.pick("Show AI result first", "AI 结果置顶"),
+                    isOn: $draft.aiResultFirst,
+                    onChange: save
+                )
+                .opacity(draft.aiEnabled ? 1 : SettingsStyle.disabledOpacity)
+                .disabled(!draft.aiEnabled)
                 if selectedDefaultServiceCount(available: available) == 0 {
                     Text(L.pick(
                         "Nothing selected — every enabled service will be used.",
                         "未选择默认服务时将调用所有已启用的服务。"
                     ))
-                    .font(.system(size: 10))
+                    .font(SettingsStyle.rowSubtitleFont)
                     .foregroundStyle(.orange)
-                    .padding(.horizontal, 10)
-                    .padding(.top, 2)
+                    .padding(.horizontal, SettingsStyle.rowHorizontalPadding)
+                    .padding(.vertical, SettingsStyle.rowVerticalPadding)
                 }
-                Text(L.pick(
-                    "Called on every new translation. Use the switch button on a result to swap one temporarily.",
-                    "每次新翻译默认调用这些服务；单条结果可在标题处临时切换。"
-                ))
-                .font(.system(size: 10))
-                .foregroundStyle(.tertiary)
-                .fixedSize(horizontal: false, vertical: true)
-                .padding(.horizontal, 10)
-                .padding(.top, 2)
-                .padding(.bottom, 8)
             }
         }
     }
@@ -293,62 +322,107 @@ struct SettingsGeneralPage: View {
         }
     }
 
-    private func defaultServiceRow(
+    private func serviceRow(
         kind: TranslationProviderID,
         available: [TranslationProviderID]
     ) -> some View {
         let selected = draft.defaultProviderIDs.contains(kind.rawValue)
         let selectedCount = selectedDefaultServiceCount(available: available)
         let isLastSelected = selected && selectedCount == 1
+        let subtitle = defaultServiceSubtitle(for: kind)
 
-        return HStack(spacing: 10) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(kind.displayName)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(.primary)
-                Text(defaultServiceSubtitle(for: kind))
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(1)
-                    .truncationMode(.middle)
-            }
-            Spacer(minLength: 4)
-            Toggle("", isOn: Binding(
-                get: { draft.defaultProviderIDs.contains(kind.rawValue) },
-                set: { newValue in
-                    guard !(isLastSelected && !newValue) else { return }
-                    if newValue {
-                        if !draft.defaultProviderIDs.contains(kind.rawValue) {
-                            draft.defaultProviderIDs.append(kind.rawValue)
-                        }
-                    } else {
-                        draft.defaultProviderIDs.removeAll { $0 == kind.rawValue }
-                    }
-                    save()
+        return SettingsRow(
+            title: kind.displayName,
+            subtitle: subtitle.isEmpty ? nil : subtitle
+        ) {
+            HStack(spacing: 4) {
+                if kind != .ai {
+                    orderControls(for: kind)
                 }
-            ))
-            .toggleStyle(.switch)
-            .controlSize(.mini)
-            .labelsHidden()
-            .disabled(isLastSelected)
-            .help(isLastSelected
-                  ? L.pick("At least one service stays selected", "至少保留一个默认服务")
-                  : "")
+                Toggle("", isOn: Binding(
+                    get: { draft.defaultProviderIDs.contains(kind.rawValue) },
+                    set: { newValue in
+                        guard !(isLastSelected && !newValue) else { return }
+                        if newValue {
+                            if !draft.defaultProviderIDs.contains(kind.rawValue) {
+                                draft.defaultProviderIDs.append(kind.rawValue)
+                            }
+                        } else {
+                            draft.defaultProviderIDs.removeAll { $0 == kind.rawValue }
+                        }
+                        save()
+                    }
+                ))
+                .toggleStyle(.switch)
+                .controlSize(.mini)
+                .labelsHidden()
+                .disabled(isLastSelected)
+                .help(isLastSelected
+                      ? L.pick("At least one service stays selected", "至少保留一个默认服务")
+                      : "")
+            }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+    }
+
+    /// Reorders the enabled API providers. Disabled entries stay put, so the
+    /// visible list moves exactly one step per tap.
+    private func orderControls(for kind: TranslationProviderID) -> some View {
+        let kinds = draft.enabledAPIProviderKinds
+        let index = kinds.firstIndex(of: kind)
+        let canMoveUp = (index ?? 0) > 0
+        let canMoveDown = index.map { $0 < kinds.count - 1 } ?? false
+
+        return HStack(spacing: 0) {
+            Button {
+                moveService(kind, offset: -1)
+            } label: {
+                Image(systemName: "chevron.up")
+                    .font(.system(size: 9, weight: .semibold))
+                    .frame(width: 16, height: 16)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .disabled(!canMoveUp)
+            .opacity(canMoveUp ? 1 : 0.3)
+            .help(L.pick("Move up", "上移"))
+
+            Button {
+                moveService(kind, offset: 1)
+            } label: {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .semibold))
+                    .frame(width: 16, height: 16)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.borderless)
+            .foregroundStyle(.secondary)
+            .disabled(!canMoveDown)
+            .opacity(canMoveDown ? 1 : 0.3)
+            .help(L.pick("Move down", "下移"))
+        }
+    }
+
+    private func moveService(_ kind: TranslationProviderID, offset: Int) {
+        let kinds = draft.enabledAPIProviderKinds
+        guard let index = kinds.firstIndex(of: kind) else { return }
+        let target = index + offset
+        guard kinds.indices.contains(target) else { return }
+        let other = kinds[target]
+        guard let a = draft.apiProviders.firstIndex(where: { $0.kind == kind }),
+              let b = draft.apiProviders.firstIndex(where: { $0.kind == other }) else {
+            return
+        }
+        draft.apiProviders.swapAt(a, b)
+        save()
     }
 
     private func defaultServiceSubtitle(for kind: TranslationProviderID) -> String {
         switch kind {
-        case .google:
-            return L.pick("Unofficial public endpoint", "非官方公开接口")
-        case .microsoft:
-            return L.pick("Unofficial Edge endpoint", "非官方 Edge 接口")
-        case .deepl:
-            return L.pick("Unofficial iOS endpoint · 1500-char cap", "非官方 iOS 接口 · 单次 1500 字符")
+        case .google, .microsoft, .deepl:
+            return ""
         case .system:
-            return L.pick("On-device · offline · macOS 26+", "本地运行 · 离线 · 需 macOS 26+")
+            return kind.isRuntimeAvailable ? "" : L.pick("Requires macOS 26", "需 macOS 26")
         case .ai:
             let model = draft.textModel.trimmingCharacters(in: .whitespacesAndNewlines)
             return model.isEmpty ? L.pick("Model not configured", "尚未配置模型") : model
@@ -364,10 +438,10 @@ struct SettingsGeneralPage: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(SettingsStyle.rowTitleFont)
                     .foregroundStyle(.primary)
                 Text(subtitle)
-                    .font(.system(size: 10))
+                    .font(SettingsStyle.rowSubtitleFont)
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -387,51 +461,13 @@ struct SettingsGeneralPage: View {
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
+        .padding(.horizontal, SettingsStyle.rowHorizontalPadding)
+        .padding(.vertical, SettingsStyle.rowVerticalPadding)
         .contentShape(Rectangle())
         .onTapGesture { onTap() }
     }
 
-    // MARK: - Cache section
-
-    private var cacheSection: some View {
-        SettingsSection(title: L.pick("Cache", "缓存")) {
-            SettingsToggleRow(
-                title: L.pick("Enable cache", "开启缓存"),
-                subtitle: L.pick(
-                    "Save translations locally. Repeat lookups skip the network.",
-                    "本地保存翻译结果，相同查询直接复用。"
-                ),
-                isOn: $draft.cacheEnabled,
-                onChange: save
-            )
-            Divider().padding(.horizontal, 10)
-            cacheNumberRow(
-                title: L.pick("Days to keep", "保留天数"),
-                subtitle: L.pick(
-                    "Older entries are discarded automatically.",
-                    "超过天数的条目会自动清除。"
-                ),
-                value: $draft.cacheTTLDays,
-                range: 1...365
-            )
-            .opacity(draft.cacheEnabled ? 1 : 0.4)
-            .disabled(!draft.cacheEnabled)
-            Divider().padding(.horizontal, 10)
-            cacheNumberRow(
-                title: L.pick("Max entries", "缓存上限"),
-                subtitle: L.pick(
-                    "Once reached, the least recently used entries are removed.",
-                    "达到上限后，按最久未用清除。"
-                ),
-                value: $draft.cacheMaxEntries,
-                range: 100...50000
-            )
-            .opacity(draft.cacheEnabled ? 1 : 0.4)
-            .disabled(!draft.cacheEnabled)
-        }
-    }
+    // MARK: - Cache rows
 
     private func cacheNumberRow(
         title: String,
@@ -442,96 +478,67 @@ struct SettingsGeneralPage: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(SettingsStyle.rowTitleFont)
                     .foregroundStyle(.primary)
-                Text(subtitle)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
+                if !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(SettingsStyle.rowSubtitleFont)
+                        .foregroundStyle(.secondary)
+                }
             }
             Spacer(minLength: 8)
             TextField("", value: value, format: .number)
                 .textFieldStyle(.roundedBorder)
                 .controlSize(.small)
                 .multilineTextAlignment(.trailing)
-                .frame(width: 80)
+                .frame(width: SettingsStyle.numberFieldWidth)
                 .onChange(of: value.wrappedValue) { newValue in
                     let clamped = min(max(newValue, range.lowerBound), range.upperBound)
                     if clamped != newValue { value.wrappedValue = clamped }
                     debouncedSave()
                 }
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.horizontal, SettingsStyle.rowHorizontalPadding)
+        .padding(.vertical, SettingsStyle.rowVerticalPadding)
     }
 
     // MARK: - Other sections (Permissions / General / Hotkeys)
 
     private var permissionsSection: some View {
-        // Three permissions, each gating a specific capability. Order is
-        // chosen so the most user-visible feature (hotkeys) sits in the
-        // middle — both other rows make less sense without it.
-        VStack(alignment: .leading, spacing: 8) {
-            if secureInputActive {
-                secureInputWarning
+        SettingsAdvancedSection(
+            title: L.pick("Permissions", "权限"),
+            initiallyExpanded: !accessibilityTrusted || !screenRecordingTrusted || secureInputActive
+        ) {
+            VStack(spacing: 0) {
+                if secureInputActive {
+                    SettingsNotice(
+                        text: L.pick(
+                            "macOS Secure Keyboard Entry is active. Common culprits: 1Password autofill, Terminal, or a focused password field.",
+                            "macOS 安全键盘输入被占用。常见来源：1Password 自动填充、Terminal、密码输入框。"
+                        ),
+                        title: L.pick(
+                            "Hotkeys blocked by another app",
+                            "快捷键被其他 App 拦截"
+                        ),
+                        style: .warning
+                    )
+                    .padding(8)
+                    SettingsRowDivider()
+                }
+                SettingsPermissionRow(
+                    title: L.pick("Selection translation", "划词翻译"),
+                    requirement: L.pick("Accessibility", "辅助功能"),
+                    granted: accessibilityTrusted,
+                    openSettings: PermissionChecker.openAccessibilitySettings
+                )
+                SettingsRowDivider()
+                SettingsPermissionRow(
+                    title: L.pick("Screenshot translation", "截图翻译"),
+                    requirement: L.pick("Screen recording", "屏幕录制"),
+                    granted: screenRecordingTrusted,
+                    openSettings: PermissionChecker.openScreenRecordingSettings
+                )
             }
-            permissionsSectionInner
-        }
-    }
-
-    /// Banner shown when some other app on the system has enabled macOS's
-    /// `SecureEventInput` — most often 1Password during autofill, Terminal
-    /// with "Secure Keyboard Entry" checked, or a focused password field.
-    /// When secure input is active **every** CGEventTap stops receiving
-    /// keyDown events globally, so atst's hotkeys silently break even
-    /// though every TCC perm is granted. The warning saves the user from
-    /// chasing a non-existent permission bug.
-    private var secureInputWarning: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: "exclamationmark.shield.fill")
-                .foregroundStyle(.orange)
-                .font(.system(size: 14, weight: .semibold))
-                .padding(.top, 1)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(L.pick(
-                    "Hotkeys blocked by another app",
-                    "快捷键被其他 App 拦截"
-                ))
-                .font(.system(size: 12, weight: .semibold))
-                Text(L.pick(
-                    "macOS Secure Keyboard Entry is active. Common culprits: 1Password autofill, Terminal, or a focused password field.",
-                    "macOS 安全键盘输入被占用。常见来源：1Password 自动填充、Terminal、密码输入框。"
-                ))
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-            }
-        }
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(Color.orange.opacity(0.08))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .stroke(Color.orange.opacity(0.25), lineWidth: 1)
-        )
-    }
-
-    private var permissionsSectionInner: some View {
-        SettingsSection(title: L.pick("Permissions", "权限")) {
-            SettingsPermissionRow(
-                title: L.pick("Selection translation", "划词翻译"),
-                requirement: L.pick("Accessibility", "辅助功能"),
-                granted: accessibilityTrusted,
-                openSettings: PermissionChecker.openAccessibilitySettings
-            )
-            Divider().padding(.horizontal, 10)
-            SettingsPermissionRow(
-                title: L.pick("Screenshot translation", "截图翻译"),
-                requirement: L.pick("Screen recording", "屏幕录制"),
-                granted: screenRecordingTrusted,
-                openSettings: PermissionChecker.openScreenRecordingSettings
-            )
         }
     }
 
@@ -541,28 +548,21 @@ struct SettingsGeneralPage: View {
             // optional subtitle) on the left, control pinned to the right
             // edge — so the section has a consistent visual rhythm rather
             // than mixing "label above" and "label beside" patterns.
-            targetLanguageRow
-            Divider().padding(.horizontal, 10)
-            secondaryTargetLanguageRow
-            Divider().padding(.horizontal, 10)
             uiLanguageRow
-            Divider().padding(.horizontal, 10)
+            SettingsRowDivider()
             appearanceRow
-            Divider().padding(.horizontal, 10)
+            SettingsRowDivider()
             launchAtLoginRow
-            Divider().padding(.horizontal, 10)
+            SettingsRowDivider()
             hideMenuBarIconRow
-            Divider().padding(.horizontal, 10)
+            SettingsRowDivider()
             pinnedNoteFollowsRow
         }
     }
 
-    /// Width applied to every right-aligned control in the General
-    /// section (target-language popup, segmented pickers). Picking a single
-    /// value gives the section a vertical guideline that the eye can
-    /// follow down the right edge. 170pt comfortably fits the longest
-    /// preset label ("繁體中文") at .small picker size with breathing room.
-    private let generalControlWidth: CGFloat = 170
+    /// 170pt comfortably fits the longest preset label ("繁體中文") at
+    /// .small picker size with breathing room. Kept in SettingsStyle so
+    /// every page aligns to the same right edge.
 
     private var targetLanguageRow: some View {
         languagePickerRow(
@@ -574,11 +574,8 @@ struct SettingsGeneralPage: View {
 
     private var secondaryTargetLanguageRow: some View {
         languagePickerRow(
-            title: L.pick("Secondary Language", "第二目标语言"),
-            subtitle: L.pick(
-                "Used when the source is already in the target language",
-                "原文已是目标语言时，改译成这个"
-            ),
+            title: L.pick("Secondary", "第二目标语言"),
+            subtitle: nil,
             selection: $draft.secondaryTargetLanguage
         )
     }
@@ -598,11 +595,11 @@ struct SettingsGeneralPage: View {
         return HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(title)
-                    .font(.system(size: 12, weight: .medium))
+                    .font(SettingsStyle.rowTitleFont)
                     .foregroundStyle(.primary)
                 if let subtitle {
                     Text(subtitle)
-                        .font(.system(size: 10))
+                        .font(SettingsStyle.rowSubtitleFont)
                         .foregroundStyle(.secondary)
                 }
             }
@@ -628,21 +625,18 @@ struct SettingsGeneralPage: View {
                     save()
                 }
             }
-            .frame(width: generalControlWidth, alignment: .trailing)
+            .frame(width: SettingsStyle.controlWidth, alignment: .trailing)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.horizontal, SettingsStyle.rowHorizontalPadding)
+        .padding(.vertical, SettingsStyle.rowVerticalPadding)
     }
 
     private var uiLanguageRow: some View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(L.pick("Interface Language", "界面语言"))
-                    .font(.system(size: 12, weight: .medium))
+                    .font(SettingsStyle.rowTitleFont)
                     .foregroundStyle(.primary)
-                Text(L.pick("Auto follows the system", "自动跟随系统"))
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
             // Same right-aligned container as targetLanguageRow:
@@ -668,15 +662,16 @@ struct SettingsGeneralPage: View {
                     save()
                 }
             }
-            .frame(width: generalControlWidth, alignment: .trailing)
+            .frame(width: SettingsStyle.controlWidth, alignment: .trailing)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.horizontal, SettingsStyle.rowHorizontalPadding)
+        .padding(.vertical, SettingsStyle.rowVerticalPadding)
     }
 
     private var hotkeysSection: some View {
         SettingsSection(title: L.pick("Hotkeys", "快捷键")) {
             shortcutRow(L.pick("Selection translation", "划词翻译"), shortcut: $draft.textHotKey, target: .text)
+            SettingsRowDivider()
             shortcutRow(L.pick("Screenshot translation", "截图翻译"), shortcut: $draft.screenshotHotKey, target: .screenshot)
         }
     }
@@ -685,11 +680,8 @@ struct SettingsGeneralPage: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 1) {
                 Text(L.pick("Appearance", "外观"))
-                    .font(.system(size: 12, weight: .medium))
+                    .font(SettingsStyle.rowTitleFont)
                     .foregroundStyle(.primary)
-                Text(L.pick("Auto follows the system", "自动跟随系统"))
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
             }
             Spacer(minLength: 8)
             // Same right-aligned container as uiLanguageRow — segmented
@@ -711,18 +703,18 @@ struct SettingsGeneralPage: View {
                     save()
                 }
             }
-            .frame(width: generalControlWidth, alignment: .trailing)
+            .frame(width: SettingsStyle.controlWidth, alignment: .trailing)
         }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.horizontal, SettingsStyle.rowHorizontalPadding)
+        .padding(.vertical, SettingsStyle.rowVerticalPadding)
     }
 
     private var pinnedNoteFollowsRow: some View {
         SettingsToggleRow(
             title: L.pick("Notes on all desktops", "便签跨桌面显示"),
             subtitle: L.pick(
-                "Keep pinned notes visible after switching Space",
-                "切换桌面后便签依然可见"
+                "Stay visible after switching desktop",
+                "切换桌面后仍显示"
             ),
             isOn: $draft.pinnedNoteFollowsAcrossSpaces,
             onChange: save
@@ -738,16 +730,9 @@ struct SettingsGeneralPage: View {
         )
     }
 
-    /// Hiding the menu bar icon leaves no always-visible entry point, so the
-    /// subtitle spells out the two remaining ways into settings: the gear in
-    /// the translation window header, and launching atst again.
     private var hideMenuBarIconRow: some View {
         SettingsToggleRow(
             title: L.pick("Hide menu bar icon", "隐藏菜单栏图标"),
-            subtitle: L.pick(
-                "Open settings from the translation window, or launch atst again",
-                "可从翻译窗口打开设置，或再次启动 atst"
-            ),
             isOn: $draft.hideMenuBarIcon,
             onChange: save
         )
@@ -758,11 +743,11 @@ struct SettingsGeneralPage: View {
     private var launchAtLoginSubtitle: String {
         if draft.launchAtLogin, SMAppService.mainApp.status == .requiresApproval {
             return L.pick(
-                "Approve atst under System Settings → General → Login Items",
-                "请在 系统设置 → 通用 → 登录项 中批准 atst"
+                "Approve in System Settings → Login Items",
+                "请在系统设置 → 登录项中批准"
             )
         }
-        return L.pick("Start atst in the menu bar when you log in", "登录后自动在菜单栏启动")
+        return ""
     }
 
     // MARK: - Hotkey recording
@@ -781,23 +766,21 @@ struct SettingsGeneralPage: View {
             }
         } label: {
             HStack(spacing: 10) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(.primary)
-                    Text(isRecording
-                         ? L.pick("Press a new combo, Esc to cancel", "按下新组合键，Esc 取消")
-                         : shortcut.wrappedValue.displayName)
-                        .font(.system(size: 12, weight: .semibold, design: .rounded))
-                        .foregroundStyle(isRecording ? Color.accentColor : .secondary)
-                }
+                Text(title)
+                    .font(SettingsStyle.rowTitleFont)
+                    .foregroundStyle(.primary)
                 Spacer()
+                Text(isRecording
+                     ? L.pick("Press keys…", "按键…")
+                     : shortcut.wrappedValue.displayName)
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(isRecording ? Color.accentColor : .secondary)
                 Image(systemName: isRecording ? "record.circle" : "pencil")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(isRecording ? AnyShapeStyle(Color.accentColor) : AnyShapeStyle(.tertiary))
             }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.horizontal, SettingsStyle.rowHorizontalPadding)
+            .padding(.vertical, SettingsStyle.rowVerticalPadding)
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
