@@ -58,12 +58,13 @@ Line structure is preserved end to end: the AI prompt has an explicit keep-line-
 
 ### `TranslationProvider` protocol
 
-In `Sources/atst/Translation/TranslationProvider.swift`. Four implementations:
+In `Sources/atst/Translation/TranslationProvider.swift`. Five implementations:
 
 - `OpenAIProvider` — OpenAI-compatible Chat Completions, SSE streaming, multimodal-aware (text path only; screenshot path lives separately). Owns the XML tag protocol (`<atst-result>` / `<atst-item>` / `<atst-phonetic>` / `<atst-desc>` / `<atst-translatable>`).
 - `GoogleProvider` — unofficial `translate-pa.googleapis.com` endpoint. Public API key baked in. HTML entity decoder required for the response.
 - `MicrosoftProvider` — unofficial Edge `edge.microsoft.com/translate/translatetext` endpoint (bare JSON string array body, no auth). The old JWT flow (`…/translate/auth` → `api-edge.cognitive.microsofttranslator.com`) was retired in 2026-07 and now answers 404 — don't restore it.
 - `DeepLProvider` — unofficial DeepL iOS "oneshot" endpoint (`oneshot-free.www.deepl.com/v1/translate`, `Authorization: None`). No key. The advertised iOS app version is resolved from the public iTunes lookup and cached by `DeepLAppVersionProvider`; a stale version gets HTTP 429. Anonymous requests cap at 1500 UTF-16 units, so long selections are split by line into multiple requests. The older `www2.deepl.com/jsonrpc` / `LMT_handle_texts` path no longer returns translations — don't go back to it.
+- `SystemTranslationProvider` — Apple's on-device Translation framework, macOS **26+ only**. Before 26, `TranslationSession` is only obtainable from SwiftUI's `.translationTask`, which would tie a provider to a view; macOS 26 adds `TranslationSession(installedSource:target:)`, so no UI bridge is needed. `isRuntimeAvailable` keeps it out of `availableProviderKinds` on older systems, and a missing language pack surfaces `AppError.systemTranslationUnavailable` with the System Settings path rather than silently degrading. The framework supports ~20 languages; unsupported pairs fail the same way. Text never leaves the Mac.
 
 Google / Microsoft / DeepL throw `AppError.providerUnavailable` / `providerRequestFailed(name:detail:)` so their rows never say "AI"; the `ai*` cases are for the OpenAI path only.
 

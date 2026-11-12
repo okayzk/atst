@@ -223,11 +223,14 @@ struct SettingsGeneralPage: View {
     }
 
     private var apiSubtitle: String {
-        let enabled = draft.apiProviders.filter(\.enabled).compactMap { entry -> String? in
+        let enabled = draft.apiProviders.filter { entry in
+            entry.enabled && (entry.kind?.isRuntimeAvailable ?? false)
+        }.compactMap { entry -> String? in
             switch entry.kind {
             case .google: return "Google"
             case .microsoft: return "Microsoft"
             case .deepl: return "DeepL"
+            case .system: return "Apple"
             case .ai, .none: return nil
             }
         }
@@ -344,6 +347,8 @@ struct SettingsGeneralPage: View {
             return L.pick("Unofficial Edge endpoint", "非官方 Edge 接口")
         case .deepl:
             return L.pick("Unofficial iOS endpoint · 1500-char cap", "非官方 iOS 接口 · 单次 1500 字符")
+        case .system:
+            return L.pick("On-device · offline · macOS 26+", "本地运行 · 离线 · 需 macOS 26+")
         case .ai:
             let model = draft.textModel.trimmingCharacters(in: .whitespacesAndNewlines)
             return model.isEmpty ? L.pick("Model not configured", "尚未配置模型") : model

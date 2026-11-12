@@ -26,7 +26,7 @@ Hit a hotkey, get a translation. Works **out of the box** with built-in Google +
 - 🔁 **Reverse translation** — text that's already in your target language is translated into your secondary language instead (Chinese ⇄ English out of the box)
 - ⌨️ **Type to translate** — press `⌥D` with nothing selected and a text box appears; type or paste. The original stays above the result, and clicking it reopens the editor for another pass
 - 🖼️ **Screenshot translation** — press `⌥S`, drag a region, get the translation. On-device Vision OCR by default (fast + private + free); falls back to AI vision if you've configured one
-- 🔀 **Multi-source side-by-side** — Google, Microsoft and DeepL results stack above your AI result, each with its own switch and collapse controls
+- 🔀 **Multi-source side-by-side** — Google, Microsoft, DeepL and Apple's on-device engine stack above your AI result, each with its own switch and collapse controls
 - 🧠 **AI dictionary mode** — for single words, AI providers can return multiple meanings, IPA phonetics, and a short usage explanation
 - 📖 **Dictionary lookup** — a dedicated card for single words and short fixed phrases, with UK/US IPA and pronunciation playback, grouped senses, bilingual examples and related phrases; Youdao is the primary source, macOS's built-in dictionary is the offline fallback, and a dictionary hit skips translation by default
 - 📌 **Pin as note** — detach a translation into a floating sticky note that keeps the per-result controls and can be unpinned back into the tooltip
@@ -34,7 +34,7 @@ Hit a hotkey, get a translation. Works **out of the box** with built-in Google +
 - 🫧 **Native Liquid Glass** — translation tooltips and pinned notes use Liquid Glass on macOS 26+ when available, with an automatic fallback on older systems
 - 🪶 **Tiny footprint** — ~2 MB DMG, ~4 MB installed. Pure Swift/AppKit, no Electron, no Web view
 - 🌐 **Bilingual UI** — auto English / Chinese based on system language, with a manual override
-- 🆓 **Zero-config friendly** — works on a fresh install with no API keys (Google + Microsoft + DeepL adapters); add an OpenAI-compatible endpoint when you want richer output
+- 🆓 **Zero-config friendly** — works on a fresh install with no API keys (Google + Microsoft + DeepL adapters, plus on-device Apple translation on macOS 26+); add an OpenAI-compatible endpoint when you want richer output
 
 ---
 
@@ -183,6 +183,7 @@ Add or remove recognition languages from the chip row below. Default: Simplified
 | Google (built-in) | ❌ | ✅ | — | ❌ | ❌ | ❌ |
 | Microsoft (built-in) | ❌ | ✅ | — | ❌ | ❌ | ❌ |
 | DeepL (built-in) | ❌ | ✅ (1500 chars/request) | — | ❌ | ❌ | ❌ |
+| Apple (built-in, macOS 26+) | ❌ | ✅ | — | ❌ | ❌ | ❌ |
 | OpenAI-compatible | ✅ | depends | ✅ | ✅ | ✅ | ✅ |
 
 ### Other goodies
@@ -199,6 +200,7 @@ Add or remove recognition languages from the chip row below. Default: Simplified
 ## Requirements
 
 - macOS **14.0** (Sonoma) or later
+- Apple's on-device translation source requires **macOS 26** plus the matching language pack (System Settings › General › Language & Region › Translation Languages)
 - **Apple Silicon** — the release DMG is built for arm64 only. Intel Macs: build from source (see above)
 - A handful of MB of disk for the local cache
 - For AI features: any OpenAI-compatible endpoint (paid or local-LLM)
@@ -208,7 +210,7 @@ Add or remove recognition languages from the chip row below. Default: Simplified
 ## Privacy
 
 - atst is a **local app**. No telemetry, no analytics, no crash reporters.
-- Translation providers (Google, Microsoft, DeepL, your AI endpoint) and the optional Youdao dictionary receive only the text you trigger a lookup for. The macOS system dictionary lookup stays on-device. Language detection for the tooltip header and reverse translation runs on-device.
+- Translation providers (Google, Microsoft, DeepL, your AI endpoint) and the optional Youdao dictionary receive only the text you trigger a lookup for. Apple system translation runs entirely on-device, and the macOS system dictionary lookup also stays on-device. Language detection for the tooltip header and reverse translation runs on-device.
 - Network activity beyond translations: one request to `api.github.com` per launch (at most every 4 h) to check for a newer release, a small connection-warming request to each enabled provider when you press a hotkey's modifier key, a Youdao dictionary request when a word/phrase lookup runs, and a Youdao audio request when you tap a pronunciation button.
 - Cache lives at `~/Library/Caches/dev.local.atst/translations.json` and `dictionary.json`. Settings live at `~/Library/Preferences/dev.local.atst.plist`. Delete any of them at any time.
 - A diagnostic log is written to `/tmp/atst.log`; it includes the first characters of translated text. Delete it whenever you like.
@@ -226,7 +228,7 @@ Add or remove recognition languages from the chip row below. Default: Simplified
 
 ## License
 
-Apache 2.0 — see [LICENSE](./LICENSE) for details.
+Apache 2.0 — see [LICENSE](./LICENSE) for details. This repository is a derivative work of [atst](https://github.com/itaober/atst) by [@itaober](https://github.com/itaober); copyright attribution and the list of modifications are in [NOTICE](./NOTICE).
 
 ## Acknowledgments
 

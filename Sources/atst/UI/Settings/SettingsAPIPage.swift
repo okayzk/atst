@@ -55,13 +55,15 @@ struct SettingsAPIPage: View {
     }
 
     private func providerRow(index: Int, entry: APIProviderEntry) -> some View {
-        HStack(spacing: 10) {
+        let isAvailable = entry.kind?.isRuntimeAvailable ?? true
+        let dimmed = !draft.apiEnabled || !isAvailable
+        return HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 1) {
                 HStack(spacing: 5) {
                     Text(displayName(for: entry))
                         .font(.system(size: 12, weight: .medium))
                         .foregroundStyle(.primary)
-                    if let kind = entry.kind, kind != .ai {
+                    if let kind = entry.kind, kind != .ai, kind != .system {
                         ProviderHealthIndicator(health: health.status(for: kind))
                     }
                 }
@@ -86,8 +88,8 @@ struct SettingsAPIPage: View {
             .toggleStyle(.switch)
             .controlSize(.mini)
             .labelsHidden()
-            .disabled(!draft.apiEnabled)
-            .opacity(draft.apiEnabled ? 1 : 0.4)
+            .disabled(dimmed)
+            .opacity(dimmed ? 0.4 : 1)
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
@@ -136,7 +138,10 @@ struct SettingsAPIPage: View {
         switch entry.kind {
         case .google: return "Google"
         case .microsoft: return "Microsoft"
-        case .deepl: return "DeepL"
+        case .deepl:
+            return "DeepL"
+        case .system:
+            return "Apple"
         case .ai, .none: return entry.id
         }
     }
@@ -157,6 +162,17 @@ struct SettingsAPIPage: View {
             return L.pick(
                 "Unofficial iOS endpoint · no key · 1500-char cap",
                 "非官方 iOS 接口 · 无需 Key · 单次 1500 字符"
+            )
+        case .system:
+            if entry.kind?.isRuntimeAvailable == false {
+                return L.pick(
+                    "macOS built-in translation · requires macOS 26",
+                    "macOS 内置翻译 · 需要 macOS 26"
+                )
+            }
+            return L.pick(
+                "macOS built-in translation · on-device · no key",
+                "macOS 内置翻译 · 本地运行 · 无需 Key"
             )
         case .ai, .none:
             return ""
@@ -215,8 +231,8 @@ struct SettingsAPIPage: View {
                     .foregroundStyle(.tertiary)
             }
             Text(L.pick(
-                "The dot next to each provider shows reachability and is checked automatically when this page opens. Google, Microsoft and DeepL adapters use unofficial public endpoints. They may be rate-limited or blocked at any time. Your selection text is sent to the respective service.",
-                "provider 名称后的圆点表示可达性，打开本页时自动检测。Google、Microsoft 与 DeepL 都使用非官方公开接口，随时可能限流或不可用。选区文本会被发送到对应服务方。"
+                "The dot next to each provider shows reachability and is checked automatically when this page opens. Apple uses the macOS on-device Translation engine (macOS 26+, language packs downloaded in System Settings); its text never leaves this Mac. Google, Microsoft and DeepL adapters use unofficial public endpoints. They may be rate-limited or blocked at any time. Your selection text is sent to the respective service.",
+                "provider 名称后的圆点表示可达性，打开本页时自动检测。Apple 使用 macOS 内置翻译引擎（需 macOS 26+，语言包在系统设置中下载），文本不会离开本机。Google、Microsoft 与 DeepL 都使用非官方公开接口，随时可能限流或不可用。选区文本会被发送到对应服务方。"
             ))
             .font(.system(size: 10))
             .foregroundStyle(.secondary)

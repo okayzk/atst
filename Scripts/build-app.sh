@@ -50,6 +50,10 @@ rm -rf "$APP_DIR"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 cp "$BUILD_DIR/$APP_NAME" "$MACOS_DIR/$APP_NAME"
 cp "$ROOT_DIR/Resources/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
+# Apache-2.0 §4(a) and §4(d): a distributed binary has to carry the license
+# and the NOTICE, not just the source tree.
+cp "$ROOT_DIR/LICENSE" "$RESOURCES_DIR/LICENSE"
+cp "$ROOT_DIR/NOTICE" "$RESOURCES_DIR/NOTICE"
 
 cat > "$CONTENTS_DIR/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -88,7 +92,7 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
   <key>LSUIElement</key>
   <true/>
   <key>NSHumanReadableCopyright</key>
-  <string>Copyright © 2026</string>
+  <string>Copyright © 2026 okayzk. Based on atst by itaober (Apache-2.0).</string>
 </dict>
 </plist>
 PLIST

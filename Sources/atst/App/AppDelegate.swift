@@ -149,7 +149,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                     MicrosoftProvider.prewarm()
                 case .deepl:
                     DeepLProvider.prewarm()
-                case .ai:
+                case .system, .ai:
                     break
                 }
             }

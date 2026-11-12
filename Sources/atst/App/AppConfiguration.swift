@@ -123,7 +123,8 @@ struct AppConfiguration: Codable, Equatable {
     static let defaultAPIProviders: [APIProviderEntry] = [
         .init(kind: .google, enabled: true),
         .init(kind: .microsoft, enabled: true),
-        .init(kind: .deepl, enabled: true)
+        .init(kind: .deepl, enabled: true),
+        .init(kind: .system, enabled: true)
     ]
 
     /// Every built-in service is a default until the user narrows the set.
@@ -133,6 +134,7 @@ struct AppConfiguration: Codable, Equatable {
         TranslationProviderID.google,
         .microsoft,
         .deepl,
+        .system,
         .ai
     ].map(\.rawValue)
 
@@ -349,7 +351,9 @@ struct AppConfiguration: Codable, Equatable {
     var enabledAPIProviderKinds: [TranslationProviderID] {
         guard apiEnabled else { return [] }
         return apiProviders.compactMap { entry in
-            guard entry.enabled, let kind = entry.kind else { return nil }
+            guard entry.enabled,
+                  let kind = entry.kind,
+                  kind.isRuntimeAvailable else { return nil }
             return kind
         }
     }

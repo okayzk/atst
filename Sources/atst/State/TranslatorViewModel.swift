@@ -790,6 +790,9 @@ final class TranslatorViewModel: ObservableObject {
             return MicrosoftProvider(targetLanguage: targetLanguage)
         case .deepl:
             return DeepLProvider(targetLanguage: targetLanguage)
+        case .system:
+            guard #available(macOS 26.0, *) else { return nil }
+            return SystemTranslationProvider(targetLanguage: targetLanguage)
         }
     }
 

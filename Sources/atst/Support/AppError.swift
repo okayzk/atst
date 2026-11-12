@@ -12,6 +12,9 @@ enum AppError: LocalizedError {
     /// provider's display name so the row copy never says "AI" for them.
     case providerRequestFailed(name: String, detail: String)
     case providerUnavailable(name: String, detail: String)
+    /// On-device Apple translation can't run for this pair — typically the
+    /// language pack isn't downloaded or the pair isn't supported.
+    case systemTranslationUnavailable(String)
     case emptyTranslation
     case noScreenshotText
     case visionModelLikelyUnsupported(String)
@@ -44,6 +47,8 @@ enum AppError: LocalizedError {
             return L.pick("Can't reach \(name)", "\(name) 无法连接")
         case .providerRequestFailed(let name, _):
             return L.pick("\(name) request failed", "\(name) 请求失败")
+        case .systemTranslationUnavailable:
+            return L.pick("System translation unavailable", "系统翻译不可用")
         case .emptyTranslation:
             return L.pick("Model returned no translation", "模型没有返回翻译结果")
         case .noScreenshotText:
@@ -102,6 +107,8 @@ enum AppError: LocalizedError {
         case .aiRequestFailed(let detail):
             return detail
         case .providerUnavailable(_, let detail), .providerRequestFailed(_, let detail):
+            return detail
+        case .systemTranslationUnavailable(let detail):
             return detail
         case .emptyTranslation:
             return L.pick(

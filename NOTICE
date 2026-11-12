@@ -1,0 +1,28 @@
+atst
+====
+
+Copyright 2026 itaober
+Copyright 2026 okayzk (modifications)
+
+This product includes software developed by itaober
+(https://github.com/itaober/atst), licensed under the Apache License,
+Version 2.0 (see LICENSE).
+
+This repository is a derivative work. The original architecture and the core
+translation pipeline belong to the original author. Files in this repository
+have been modified; the changes are recorded in CHANGELOG.md and summarized
+below.
+
+Substantial modifications in this repository:
+
+  - Dictionary lookup (Youdao web dictionary + macOS Dictionary fallback),
+    its settings page and its cache
+  - Per-result provider switching, collapsing and API fallback
+  - Pinned notes as live, interactive sessions
+  - DeepL provider; Microsoft migrated to the Edge translatetext endpoint
+  - PopClip extension and the atst://translate URL scheme
+  - Manual input translation and reverse (secondary target language)
+  - Result typography and tooltip layout rework
+
+This NOTICE file must be retained in redistributions of this work or of any
+derivative work, as required by the Apache License, Version 2.0, section 4(d).

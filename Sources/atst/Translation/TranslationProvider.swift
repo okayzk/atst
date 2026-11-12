@@ -11,6 +11,8 @@ enum TranslationProviderID: String, Codable, CaseIterable, Hashable {
     case microsoft
     /// Built-in DeepL adapter (unofficial iOS oneshot endpoint).
     case deepl
+    /// macOS on-device translation (Apple Translation framework, 26+).
+    case system
 }
 
 /// Whether the provider is "AI" (rich, configurable, model-bound) or "API"
@@ -25,7 +27,7 @@ extension TranslationProviderID {
     var segmentKind: TranslationSegmentKind {
         switch self {
         case .ai: return .ai
-        case .google, .microsoft, .deepl: return .api
+        case .google, .microsoft, .deepl, .system: return .api
         }
     }
 
@@ -38,6 +40,17 @@ extension TranslationProviderID {
         case .google: return "Google"
         case .microsoft: return "Microsoft"
         case .deepl: return "DeepL"
+        case .system: return "Apple"
+        }
+    }
+
+    /// False for services that need a newer macOS than this build is
+    /// running on. Keep them out of settings lists and switch menus
+    /// instead of offering a provider that can never run.
+    var isRuntimeAvailable: Bool {
+        switch self {
+        case .system: return SystemTranslationProvider.isSupported
+        case .ai, .google, .microsoft, .deepl: return true
         }
     }
 }
@@ -56,10 +69,10 @@ struct TranslationProviderEmission: Equatable {
     var isFinal: Bool
 }
 
-/// Common protocol implemented by `OpenAIProvider`, `GoogleProvider`, and
-/// `MicrosoftProvider`. Everything that translates text in atst goes through
-/// this so the ViewModel and cache layer don't have to special-case per
-/// backend.
+/// Common protocol implemented by `OpenAIProvider`, `GoogleProvider`,
+/// `MicrosoftProvider`, `DeepLProvider` and `SystemTranslationProvider`.
+/// Everything that translates text in atst goes through this so the
+/// ViewModel and cache layer don't have to special-case per backend.
 protocol TranslationProvider: Sendable {
     /// Stable identifier — drives cache keys and UI badges.
     var id: TranslationProviderID { get }

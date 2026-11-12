@@ -70,6 +70,8 @@ final class ProviderHealthMonitor: ObservableObject {
             provider = MicrosoftProvider(targetLanguage: "English")
         case .deepl:
             provider = DeepLProvider(targetLanguage: "English")
+        case .system:
+            return .unknown
         case .ai:
             return .unknown
         }

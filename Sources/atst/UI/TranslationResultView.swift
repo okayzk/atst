@@ -252,21 +252,27 @@ struct TranslationResultView: View {
         }
     }
 
-    /// One geometry for every header icon: a 10×10 glyph inside a 16×16 hit
-    /// area, shared tint. Keeps refresh / pin / unpin / close identical to
-    /// the switch / collapse / copy controls on each result row.
+    /// Header controls match the language label beside them: same 11 pt
+    /// medium rounded text size, same secondary tint. They sit on the
+    /// tooltip's glass surface and were too faint as 10 pt tertiary
+    /// glyphs, while result-row controls (switch / collapse / copy) stay
+    /// deliberately quiet inside the content.
     private func headerIconButton(
         _ systemName: String,
         help: String,
         rotation: Double = 0,
         action: @escaping () -> Void
     ) -> some View {
-        ResultIconButton(
-            systemName: systemName,
-            help: help,
-            rotation: rotation,
-            action: action
-        )
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .foregroundStyle(.secondary)
+                .rotationEffect(.degrees(rotation))
+                .frame(width: 16, height: 16)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .help(help)
     }
 
     private var canPin: Bool {
@@ -685,8 +691,8 @@ struct TranslationResultView: View {
         let isPlaceholder = text.isEmpty && isStreaming
         let displayText = isPlaceholder ? L.pick("Translating…", "翻译中…") : text
         return HStack(alignment: .top, spacing: 7) {
-            Text(displayText)
-                .font(.system(size: 15, weight: .regular))
+            Text(TooltipMarkdown.render(displayText))
+                .font(.system(size: 14, weight: .regular))
                 .foregroundStyle(.primary)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
@@ -702,8 +708,8 @@ struct TranslationResultView: View {
             Text("•")
                 .font(.system(size: 14, weight: .regular))
                 .foregroundStyle(.secondary)
-            Text(text)
-                .font(.system(size: 15, weight: .regular))
+            Text(TooltipMarkdown.render(text))
+                .font(.system(size: 14, weight: .regular))
                 .foregroundStyle(.primary)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
@@ -715,7 +721,7 @@ struct TranslationResultView: View {
 
     private func placeholderText(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 15, weight: .regular))
+            .font(.system(size: 14, weight: .regular))
             .foregroundStyle(.primary)
             .textSelection(.enabled)
             .fixedSize(horizontal: false, vertical: true)
@@ -881,8 +887,8 @@ private struct AISegmentBlock: View {
                     .padding(.vertical, 2)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                Text(text)
-                    .font(.system(size: 15, weight: .regular))
+                Text(TooltipMarkdown.render(text))
+                    .font(.system(size: 14, weight: .regular))
                     .foregroundStyle(.primary)
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
@@ -897,8 +903,8 @@ private struct AISegmentBlock: View {
             Text("•")
                 .font(.system(size: 14, weight: .regular))
                 .foregroundStyle(.secondary)
-            Text(text)
-                .font(.system(size: 15, weight: .regular))
+            Text(TooltipMarkdown.render(text))
+                .font(.system(size: 14, weight: .regular))
                 .foregroundStyle(.primary)
                 .textSelection(.enabled)
                 .fixedSize(horizontal: false, vertical: true)
@@ -910,7 +916,7 @@ private struct AISegmentBlock: View {
 
     private func placeholderText(_ text: String) -> some View {
         Text(text)
-            .font(.system(size: 15, weight: .regular))
+            .font(.system(size: 14, weight: .regular))
             .foregroundStyle(.primary)
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
