@@ -4,6 +4,14 @@
 
 All notable changes are recorded here. Each version section is what gets pasted into the matching GitHub release notes.
 
+## v0.8.0
+
+- **Settings, redesigned** — the panel now uses a single glass surface like the translation tooltip: no inner cards, larger 13 pt group titles, one-step-larger body text, and a slightly wider 380 pt panel
+- **Keep settings on top** — a pin in the settings header keeps the window above other apps and stops outside-click dismissal until you unpin
+- **Translation services in one place** — default services, provider order and **Show AI result first** now share one section; ordering is gone from the API page
+- **Fewer pages and switches** — translation prompts moved into AI → Advanced (the third-level page is gone), and the AI / API / Dictionary pages no longer repeat their enable switch or long explanatory paragraphs
+- **Smaller fixes** — hotkeys read as one line with the shortcut on the right, pinned notes keep their top-left corner instead of jumping when created, and copy is trimmed to short labels and state
+
 ## v0.7.0
 
 - **Apple system translation** — on macOS 26+, Apple's on-device Translation engine joins the API providers; it runs locally with no key, joins the existing multi-source rows, and points you to System Settings when the language pack isn't downloaded
