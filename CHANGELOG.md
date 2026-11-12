@@ -4,6 +4,13 @@
 
 All notable changes are recorded here. Each version section is what gets pasted into the matching GitHub release notes.
 
+## v0.7.0
+
+- **Apple system translation** — on macOS 26+, Apple's on-device Translation engine joins the API providers; it runs locally with no key, joins the existing multi-source rows, and points you to System Settings when the language pack isn't downloaded
+- AI results now use the same 14 pt body as the API rows; AI and screenshot-AI text render inline Markdown (bold / italic / code) instead of showing the markers, so the distinction is real formatting rather than a larger font
+- The tooltip header's refresh / pin / settings / close icons use the same 11 pt medium rounded secondary style as the language label, making them readable on the glass surface
+- Release apps now bundle LICENSE and NOTICE, and the README credits the upstream project
+
 ## v0.6.0
 
 - **Dictionary card, re-typeset** — a 21 pt headword with the source name on the same line, section headers carried by a hairline rule, 14 pt meanings on a hanging indent, and related words folded behind **Show all**. The nested card surface, the "Dictionary · Youdao" row and the CET tag line are gone, so the entry sits directly on the tooltip material
